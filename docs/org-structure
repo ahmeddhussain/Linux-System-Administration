@@ -1,0 +1,36 @@
+# Organization Structure - Company "ahmed"
+
+## Hosts
+| Host | Role | Who uses it |
+|---|---|---|
+| control01 | Ansible control node, Git, admin entry point | Admin only |
+| idm01 | FreeIPA identity, DNS | All hosts, invisibly |
+| util01 | Squid proxy, NFS homes, central logs, backups | All hosts, invisibly |
+| ws-dev01 | Dev team workstation | Dev team, contractors |
+| ws-ops01 | Ops and DBA workstation | Ops and DBA teams |
+| app01 | Web and database tier (added in Phase 10) | Teams, by permission |
+
+## Teams and policy
+| Team | Example user | Can log into | sudo | Internet policy |
+|---|---|---|---|---|
+| dev | ahmed | ws-dev01, app01 (deploy only) | restart the app service only | General web, GitHub, package repos; social media and streaming blocked |
+| ops | sara | ws-ops01, all servers | full sudo, logged | Social media blocked |
+| dba | omar | ws-ops01, app01 (database) | sudo -u postgres only | Social media blocked; no general browsing |
+| security | laila | read-only access to logs on util01 | audit tools only | Unrestricted, fully logged |
+| contractors | temporary accounts | ws-dev01 only | none | Default deny, allow-list only; accounts expire automatically |
+
+## Access paths
+- Admin: laptop -> control01 -> any host
+- Employees: laptop -> their team's workstation -> only the servers their team may reach
+- Servers: SSH accepted only from control01
+
+## Checklist: adding a new team (example: HR)
+1. FreeIPA: create user group `hr` and host group `hr-workstations`
+2. FreeIPA: create the HBAC rule (who may log into which hosts)
+3. FreeIPA: create the sudo rule (or none)
+4. util01: add the team's Squid ACL (internet policy)
+5. Ansible: add `hr-workstations` to the inventory and group_vars
+6. Terraform: add `ws-hr01` and apply
+7. Ansible: run the workstation playbook for the new group
+8. Create the first users, test login, test the blocked sites, and record
+   the change as a ticket in `tickets/`

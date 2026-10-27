@@ -1,0 +1,25 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+.terraform.lock.hcl.bak
+
+# Secrets - never commit these
+*.pem
+*.key
+id_ed25519*
+ahmed-lab*
+.vault_pass
+*.vault_pass
+secrets.yml
+
+# Ansible
+*.retry
+.ansible/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
