@@ -1,14 +1,15 @@
 # Organization Structure - Company "ahmed"
 
 ## Hosts
-| Host | Role | Who uses it |
-|---|---|---|
-| control01 | Ansible control node, Git, admin entry point | Admin only |
-| idm01 | FreeIPA identity, DNS | All hosts, invisibly |
-| util01 | Squid proxy, NFS homes, central logs, backups | All hosts, invisibly |
-| ws-dev01 | Dev team workstation | Dev team, contractors |
-| ws-ops01 | Ops and DBA workstation | Ops and DBA teams |
-| app01 | Web and database tier (added in Phase 10) | Teams, by permission |
+| Host | Role | Subnet | Private IP | Who uses it |
+|---|---|---|---|---|
+| gw01 | Gateway: only public host (SSH jump now, VPN later) | public | 10.0.0.10 | Everyone passes through |
+| control01 | Ansible control node, Git | infra | 10.0.1.10 | Admin only |
+| idm01 | FreeIPA identity, DNS | infra | 10.0.1.11 | All hosts, invisibly |
+| util01 | Squid proxy, NFS homes, central logs, backups | infra | 10.0.1.12 | All hosts, invisibly |
+| ws-dev01 | Dev team workstation | workstation | 10.0.2.10 | Dev team, contractors |
+| ws-ops01 | Ops and DBA workstation | workstation | 10.0.2.11 | Ops and DBA teams |
+| app01 | Web and database tier (added in Phase 10) | app | 10.0.3.x | Teams, by permission |
 
 ## Teams and policy
 | Team | Example user | Can log into | sudo | Internet policy |
@@ -20,9 +21,11 @@
 | contractors | temporary accounts | ws-dev01 only | none | Default deny, allow-list only; accounts expire automatically |
 
 ## Access paths
-- Admin: laptop -> control01 -> any host
-- Employees: laptop -> their team's workstation -> only the servers their team may reach
-- Servers: SSH accepted only from control01
+- Admin: laptop -> gw01 -> control01 -> any host
+- Employees: laptop -> gw01 (jump only, no shell) -> their team's workstation
+  (simulates an employee connected to the company VPN)
+- Servers accept SSH only from control01
+- Every connection not listed in terraform/main.tf `flows` is denied
 
 ## Checklist: adding a new team (example: HR)
 1. FreeIPA: create user group `hr` and host group `hr-workstations`
@@ -30,7 +33,7 @@
 3. FreeIPA: create the sudo rule (or none)
 4. util01: add the team's Squid ACL (internet policy)
 5. Ansible: add `hr-workstations` to the inventory and group_vars
-6. Terraform: add `ws-hr01` and apply
+6. Terraform: add `ws-hr01` to the `hosts` map in hosts.tf and apply
 7. Ansible: run the workstation playbook for the new group
 8. Create the first users, test login, test the blocked sites, and record
    the change as a ticket in `tickets/`

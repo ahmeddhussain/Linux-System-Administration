@@ -84,3 +84,108 @@ Every design choice: what we chose, what else we considered, and why.
 - **Alternatives:** Shared root access; employees connect through control01
 - **Why:** Every action is tied to a person in the logs, and the management
   host stays out of reach of staff.
+
+## D-011: Region - us-east-1
+- **Chosen:** us-east-1 (N. Virginia)
+- **Alternatives:** eu-central-1 (Frankfurt), eu-south-1 (Milan)
+- **Why:** Widest service and instance availability and usually the lowest
+  prices. Higher latency from Egypt is acceptable for SSH work.
+
+## D-012: Network - single VPC, single public subnet, no NAT gateway
+- **Chosen:** One VPC and one public subnet; security groups restrict access
+- **Alternatives:** Private subnets with a NAT gateway; NAT instance;
+  VPC endpoints only
+- **Why:** Hosts need outbound internet for packages and a NAT gateway costs
+  about $32/month idle. Production design would use private subnets and a
+  NAT gateway; this is a documented cost tradeoff.
+
+## D-013: Terraform state - local for now
+- **Chosen:** Local state file (gitignored)
+- **Alternatives:** S3 backend with locking; Terraform Cloud
+- **Why:** Single operator and nothing built yet; migrate to S3 later.
+
+## D-014: Terraform structure - local modules, single root
+- **Chosen:** Local modules (network, security-groups, ec2-instance) called
+  from one root configuration
+- **Alternatives:** Flat files; community registry modules; per-environment
+  directories or workspaces
+- **Why:** Each module owns one responsibility and has explicit inputs and
+  outputs, so adding a host or team is a one-line change. Writing our own
+  keeps every line explainable; the structure carries over to registry
+  modules later.
+
+## D-015: Security groups - one per host role, separate rule resources
+- **Chosen:** One group per role (control, idm, util, workstation); rules as
+  separate resources; servers accept SSH only from control01's group; service
+  ports opened only when each service is built
+- **Alternatives:** One group per host; inline rule blocks; wide-open
+  internal rules
+- **Why:** New hosts join an existing role group; separate rules avoid
+  circular references; least privilege with changes tied to tickets.
+
+## D-016: Terraform state - S3 with native locking
+- **Chosen:** S3 bucket ahmed-statefile (versioned, encrypted, public access
+  blocked, HTTPS-only) with use_lockfile; bucket created by a separate
+  bootstrap config
+- **Alternatives:** DynamoDB lock table (deprecated approach); Terraform
+  Cloud; local state
+- **Why:** Native locking needs no extra table, state is recoverable through
+  versioning, and a team could share it. The bootstrap config is needed
+  because the bucket must exist before it can hold state.
+
+## D-017: Network - tiered private subnets behind a NAT gateway
+- **Chosen:** Public subnet (bastion01, NAT gateway) plus private infra,
+  workstation, and app subnets
+- **Alternatives:** Single public subnet (cheaper); NAT instance; VPC
+  endpoints only; SSM-only access
+- **Why:** No server or workstation has a public address. Tier subnets allow
+  per-tier policy (for example, proxy rules keyed on the workstation subnet).
+  Cost: about $32/month for the NAT gateway if left running, controlled with
+  enable_nat_gateway. Supersedes D-012.
+
+## D-018: bastion01 added as the only public host
+- **Chosen:** A small public bastion accepting SSH only from the admin IP
+- **Alternatives:** control01 as the public host; SSM Session Manager only;
+  a VPN gateway
+- **Why:** Keeps control01 unreachable from the internet. Admin path:
+  laptop -> bastion01 -> control01 -> hosts. Employee path: laptop ->
+  bastion01 (jump only) -> workstation. A VPN is the production equivalent;
+  SSM will be added later as a break-glass path. Amends D-010 and D-002.
+
+## D-019: Security groups - default deny, explicit flows
+- **Chosen:** One group per role generated from a flows map; both sides of
+  every connection declared; VPC default group emptied; egress limited to
+  HTTPS and internal ICMP
+- **Alternatives:** Open egress; inline rules; network ACLs as the main layer
+- **Why:** Least privilege, and every opened path is a reviewable one-line
+  change tied to a ticket. NACLs may be added later as a second layer.
+
+## D-020: Entry point - a gateway role, SSH jump host now, VPN later
+- **Chosen:** gw01 in the public subnet with role `gateway`; hardened SSH
+  jump host first, upgraded to a WireGuard VPN gateway in a later phase
+- **Alternatives:** control01 as the public host; SSM Session Manager only;
+  VPN from day one
+- **Why:** The internet can only reach a host that holds no secrets.
+  Employees reaching workstations through the gateway simulates the company
+  VPN. The role is named for its function, so the upgrade needs no security
+  group redesign. SSM is planned as a break-glass path. Supersedes the name
+  and scope in D-018.
+
+## D-021: OS image - looked up by name, never replaced by newer images
+- **Chosen:** data lookup of the official Red Hat image; instances ignore
+  AMI changes after creation
+- **Alternatives:** hardcoded AMI ID; custom golden image (Packer or Image
+  Builder)
+- **Why:** The lookup survives image retirement. Ignoring AMI changes
+  prevents Terraform from replacing servers that are patched in place with
+  dnf. Golden images are the production upgrade path.
+
+## D-022: Host inventory and instance hardening
+- **Chosen:** All hosts defined in one map (hosts.tf), static private IPs,
+  FQDN hostnames in ahmed.internal set by cloud-init, IMDSv2 required,
+  encrypted gp3 root volumes
+- **Alternatives:** One module block per host; DHCP addresses; default
+  metadata settings
+- **Why:** Adding a host or team is a one-entry change. Stable addresses and
+  FQDNs are required by FreeIPA and keep documentation accurate. IMDSv2 and
+  encryption are baseline security at no real cost.
