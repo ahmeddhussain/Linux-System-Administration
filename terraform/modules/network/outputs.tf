@@ -13,6 +13,11 @@ output "subnet_ids" {
   value       = { for name, s in aws_subnet.this : name => s.id }
 }
 
+output "private_route_table_id" {
+  description = "ID of the route table used by private subnets"
+  value       = aws_route_table.private.id
+}
+
 output "nat_public_ip" {
   description = "Public IP of the NAT gateway (null when disabled)"
   value       = try(aws_eip.nat[0].public_ip, null)

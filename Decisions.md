@@ -189,3 +189,40 @@ Every design choice: what we chose, what else we considered, and why.
 - **Why:** Adding a host or team is a one-entry change. Stable addresses and
   FQDNs are required by FreeIPA and keep documentation accurate. IMDSv2 and
   encryption are baseline security at no real cost.
+
+## D-023: Remote access - WireGuard VPN on gw01 from day one
+- **Chosen:** WireGuard on gw01; public SSH is bootstrap-only and closed
+  once the VPN works; only UDP 51820 is exposed
+- **Alternatives:** SSH jump host; Libreswan/IPsec; OpenVPN; AWS Client VPN
+- **Why:** A VPN is how employees and admins really reach private company
+  networks. WireGuard has minimal configuration and one key plus one IP per
+  user. Libreswan is the fallback if the kernel module is unavailable.
+  Supersedes the jump-host behavior in D-018 and D-020.
+
+## D-024: VPN routing - routed without NAT, per-team address ranges
+- **Chosen:** gw01 forwards VPN traffic unmodified; source/destination check
+  disabled; private route table sends 10.8.0.0/16 to gw01; admin 10.8.0.0/24,
+  dev 10.8.1.0/24, ops 10.8.2.0/24; split tunnel (10.0.0.0/16 only)
+- **Alternatives:** Masquerade behind gw01's address; one shared VPN range;
+  full tunnel
+- **Why:** Destination hosts and logs see the real user address, enabling
+  per-team firewall rules and auditing. Note: security group egress also
+  applies to forwarded packets, so gw01 needs explicit forwarding egress.
+
+## D-025: Instance types limited by the account plan
+- **Chosen:** idm01 on c7i-flex.large (free-tier eligible, 4 GB) instead of
+  t3.medium
+- **Alternatives:** Upgrade to a paid account plan; run FreeIPA on 2 GB
+- **Why:** The free plan rejects non-eligible instance types. 4 GB meets
+  FreeIPA's recommended memory without leaving the plan.
+
+## D-026: Bootstrap and break-glass access - EC2 Instance Connect Endpoint
+- **Chosen:** AWS Instance Connect Endpoint to control01; gw01 has no
+  inbound internet rules until WireGuard is configured, then only UDP 51820;
+  gw01 is configured from control01 over SSH
+- **Alternatives:** Move control01 to the public subnet with an IP allow
+  rule; SSM Session Manager; keep public SSH on gw01 for bootstrap
+- **Why:** The control node stays private and the entry is authenticated by
+  AWS credentials instead of an IP address. The endpoint remains as
+  break-glass access if the VPN fails. Supersedes the temporary public SSH
+  in D-023.

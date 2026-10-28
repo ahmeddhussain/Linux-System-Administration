@@ -1,12 +1,13 @@
 variable "hosts" {
   description = "Host inventory: every server and workstation in the company"
   type = map(object({
-    role          = string
-    subnet        = string
-    private_ip    = string
-    instance_type = string
-    team          = string
-    allocate_eip  = optional(bool, false)
+    role              = string
+    subnet            = string
+    private_ip        = string
+    instance_type     = string
+    team              = string
+    allocate_eip      = optional(bool, false)
+    source_dest_check = optional(bool, true)
     extra_volumes = optional(map(object({
       device_name = string
       size        = number
@@ -15,12 +16,13 @@ variable "hosts" {
 
   default = {
     gw01 = {
-      role          = "gateway"
-      subnet        = "public"
-      private_ip    = "10.0.0.10"
-      instance_type = "t3.micro"
-      team          = "platform"
-      allocate_eip  = true
+      role              = "gateway"
+      subnet            = "public"
+      private_ip        = "10.0.0.10"
+      instance_type     = "t3.micro"
+      team              = "platform"
+      allocate_eip      = true
+      source_dest_check = false # required: gw01 forwards VPN traffic
     }
     control01 = {
       role          = "control"
@@ -33,7 +35,7 @@ variable "hosts" {
       role          = "idm"
       subnet        = "infra"
       private_ip    = "10.0.1.11"
-      instance_type = "t3.medium"
+      instance_type = "c7i-flex.large" # 4 GB for FreeIPA; confirm it is on your free-tier list
       team          = "platform"
     }
     util01 = {
@@ -76,6 +78,7 @@ module "hosts" {
   security_group_ids = [module.security_groups.security_group_ids[each.value.role]]
   key_name           = aws_key_pair.bootstrap.key_name
   allocate_eip       = each.value.allocate_eip
+  source_dest_check  = each.value.source_dest_check
   extra_volumes      = each.value.extra_volumes
 
   tags = {

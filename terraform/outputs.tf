@@ -23,6 +23,11 @@ output "gateway_public_ip" {
   value       = module.hosts["gw01"].public_ip
 }
 
+output "vpn_endpoint" {
+  description = "WireGuard endpoint clients connect to"
+  value       = "${module.hosts["gw01"].public_ip}:51820"
+}
+
 output "hosts" {
   description = "Private IP and instance ID of every host"
   value = {

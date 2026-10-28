@@ -1,3 +1,5 @@
+
+
 variable "aws_region" {
   description = "AWS region for the lab"
   type        = string
@@ -62,6 +64,33 @@ variable "admin_cidr" {
     condition     = can(cidrhost(var.admin_cidr, 0)) && var.admin_cidr != "0.0.0.0/0"
     error_message = "admin_cidr must be a valid CIDR block and must not be 0.0.0.0/0."
   }
+}
+
+variable "vpn_cidr" {
+  description = "Address space of all VPN clients. Must not overlap the VPC or your home network."
+  type        = string
+  default     = "10.8.0.0/16"
+}
+
+variable "vpn_ranges" {
+  description = "VPN address range per team. The admin range is required."
+  type        = map(string)
+  default = {
+    admin = "10.8.0.0/24"
+    dev   = "10.8.1.0/24"
+    ops   = "10.8.2.0/24"
+  }
+
+  validation {
+    condition     = contains(keys(var.vpn_ranges), "admin")
+    error_message = "vpn_ranges must contain an \"admin\" entry."
+  }
+}
+
+variable "enable_bootstrap_ssh" {
+  description = "Allow SSH to gw01 from the admin IP. Set false once the VPN works."
+  type        = bool
+  default     = true
 }
 
 variable "ssh_public_key_path" {
