@@ -19,7 +19,11 @@ resource "aws_iam_role" "ansible_inventory" {
 
 data "aws_iam_policy_document" "describe_instances" {
   statement {
-    actions   = ["ec2:DescribeInstances"]
+    actions = [
+      "ec2:DescribeInstances",
+      "ec2:DescribeAvailabilityZones",
+      "ec2:DescribeRegions",
+    ]
     resources = ["*"] # Describe actions do not support resource-level limits
   }
 }

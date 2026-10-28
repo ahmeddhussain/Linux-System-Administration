@@ -17,16 +17,16 @@ hostnames:
 compose:
   # Connect over private addresses; control01 manages itself locally.
   ansible_host: private_ip_address
-  ansible_connection: "'local' if tags['Name'] == 'control01' else 'ssh'"
+  ansible_connection: "'local' if ec2_tags['Name'] == 'control01' else 'ssh'"
 
 # Groups are built from the Role and Team tags set by Terraform:
 # role_gateway, role_control, role_idm, role_util, role_workstation,
 # team_platform, team_dev, team_ops, and so on.
 keyed_groups:
-  - key: tags.Role
+  - key: ec2_tags.Role
     prefix: role
-  - key: tags.Team
+  - key: ec2_tags.Team
     prefix: team
 
 groups:
-  infra: "tags['Role'] in ['control', 'idm', 'util']"
+  infra: "ec2_tags['Role'] in ['control', 'idm', 'util']"
