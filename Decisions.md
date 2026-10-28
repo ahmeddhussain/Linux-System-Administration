@@ -226,3 +226,29 @@ Every design choice: what we chose, what else we considered, and why.
   AWS credentials instead of an IP address. The endpoint remains as
   break-glass access if the VPN fails. Supersedes the temporary public SSH
   in D-023.
+## D-027: Automation account - dedicated ansible user with its own key
+- **Chosen:** Local `ansible` user on every host, key-only, passwordless
+  sudo, key generated on control01; created once via agent forwarding
+- **Alternatives:** Continue as ec2-user with the shared bootstrap key;
+  root SSH; FreeIPA-managed access only
+- **Why:** An accountable, auditable identity separate from humans. Local
+  because idm01 itself must be configured before FreeIPA exists.
+  Tradeoff: no passphrase for unattended runs; production would use
+  short-lived SSH certificates or a secrets vault.
+
+## D-028: Ansible runs from control01, code pulled from Git
+- **Chosen:** Repo cloned on control01; changes made on the laptop, pushed,
+  then pulled and applied from control01
+- **Alternatives:** Run Ansible from the laptop; copy files manually
+- **Why:** Git is the source of truth and control01 is the only place
+  changes are applied, which keeps the audit trail and the network model
+  intact.
+  
+## D-029: Ansible inventory - AWS dynamic inventory grouped by tags
+- **Chosen:** amazon.aws.aws_ec2 plugin; groups from the Role and Team tags;
+  control01 reads it through an IAM instance profile that can only describe
+  instances (no stored credentials)
+- **Alternatives:** Static hosts file; Terraform-generated inventory file
+- **Why:** AWS is the source of truth, so the inventory cannot drift, and
+  adding a host or team in Terraform makes it appear in the right groups
+  automatically. Tradeoff: depends on correct tags and API reachability.

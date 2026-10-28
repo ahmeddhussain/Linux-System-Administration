@@ -1,0 +1,7 @@
+---
+collections:
+  - name: ansible.posix
+  - name: amazon.aws
+
+## This collection provides the authorized_key, firewalld, sysctl, and SELinux modules 
+## will be used throughout. Pin the version after the first install.

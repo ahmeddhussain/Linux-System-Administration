@@ -38,6 +38,12 @@ variable "key_name" {
   type        = string
 }
 
+variable "iam_instance_profile" {
+  description = "Name of an IAM instance profile to attach (null for none)"
+  type        = string
+  default     = null
+}
+
 variable "root_volume_size" {
   description = "Root volume size in GB"
   type        = number

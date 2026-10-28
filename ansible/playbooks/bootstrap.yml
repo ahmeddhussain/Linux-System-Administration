@@ -1,0 +1,33 @@
+---
+# One-time bootstrap. Run as the default cloud user (ec2-user) using the
+# forwarded laptop key. After this, everything runs as the ansible account.
+- name: Create the automation account on every host
+  hosts: all
+  vars:
+    automation_user: ansible
+    automation_pubkey: "{{ lookup('file', '~/.ssh/ansible_ed25519.pub') }}"
+
+  tasks:
+    - name: Create the automation user (password locked, key-only)
+      ansible.builtin.user:
+        name: "{{ automation_user }}"
+        comment: Ansible automation account
+        shell: /bin/bash
+        create_home: true
+        password_lock: true
+
+    - name: Authorize the control node key (and only that key)
+      ansible.posix.authorized_key:
+        user: "{{ automation_user }}"
+        key: "{{ automation_pubkey }}"
+        exclusive: true
+        state: present
+
+    - name: Allow passwordless sudo for the automation account
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/90-{{ automation_user }}"
+        content: "{{ automation_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: /usr/sbin/visudo -cf %s

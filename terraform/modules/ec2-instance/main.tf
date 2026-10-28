@@ -15,6 +15,7 @@ resource "aws_instance" "this" {
   private_ip                  = var.private_ip
   vpc_security_group_ids      = var.security_group_ids
   key_name                    = var.key_name
+  iam_instance_profile        = var.iam_instance_profile
   associate_public_ip_address = var.allocate_eip
   source_dest_check           = var.source_dest_check
   user_data                   = local.user_data

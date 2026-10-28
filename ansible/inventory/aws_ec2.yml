@@ -1,0 +1,32 @@
+---
+plugin: amazon.aws.aws_ec2
+
+regions:
+  - us-east-1
+
+# Only this project's running instances. Stopped hosts drop out of the
+# inventory until started again.
+filters:
+  tag:Project: ahmed-infra
+  instance-state-name: running
+
+# Use the Name tag (gw01, control01, ...) as the inventory name.
+hostnames:
+  - tag:Name
+
+compose:
+  # Connect over private addresses; control01 manages itself locally.
+  ansible_host: private_ip_address
+  ansible_connection: "'local' if tags['Name'] == 'control01' else 'ssh'"
+
+# Groups are built from the Role and Team tags set by Terraform:
+# role_gateway, role_control, role_idm, role_util, role_workstation,
+# team_platform, team_dev, team_ops, and so on.
+keyed_groups:
+  - key: tags.Role
+    prefix: role
+  - key: tags.Team
+    prefix: team
+
+groups:
+  infra: "tags['Role'] in ['control', 'idm', 'util']"
