@@ -1,0 +1,12 @@
+# Managed by Ansible (role: base). Do not edit by hand.
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+X11Forwarding no
+MaxAuthTries {{ base_ssh_max_auth_tries }}
+LoginGraceTime {{ base_ssh_login_grace_time }}
+ClientAliveInterval {{ base_ssh_client_alive_interval }}
+ClientAliveCountMax {{ base_ssh_client_alive_count_max }}
+LogLevel VERBOSE
+Banner /etc/issue.net

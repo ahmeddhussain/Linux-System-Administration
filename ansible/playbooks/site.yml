@@ -1,0 +1,5 @@
+---
+- name: Baseline configuration for every host
+  hosts: all
+  roles:
+    - base

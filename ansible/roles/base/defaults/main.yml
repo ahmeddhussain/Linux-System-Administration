@@ -1,0 +1,24 @@
+---
+# Packages every host gets.
+base_packages:
+  - vim-enhanced
+  - tmux
+  - bash-completion
+  - rsync
+  - tar
+  - lsof
+  - tcpdump
+  - bind-utils
+  - nmap-ncat
+  - traceroute
+  - policycoreutils-python-utils
+  - firewalld
+  - chrony
+
+base_timezone: UTC
+
+# SSH hardening values.
+base_ssh_max_auth_tries: 4
+base_ssh_login_grace_time: 30
+base_ssh_client_alive_interval: 300
+base_ssh_client_alive_count_max: 2
