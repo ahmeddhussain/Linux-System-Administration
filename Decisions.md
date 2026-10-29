@@ -274,3 +274,14 @@ Every design choice: what we chose, what else we considered, and why.
   independent layers. A drop-in avoids editing vendor files, and validating
   before restarting prevents self-inflicted lockouts. Timekeeping is
   required for Kerberos and for correlating logs.
+
+  ## D-032: Lab lifecycle - scripted rebuild and teardown from the laptop
+- **Chosen:** scripts/lab.sh (up, resume, verify, status, down) plus a helper
+  that prepares control01 over SSH; the lab is destroyed between sessions
+- **Alternatives:** Manual steps; Makefile or Taskfile; CI pipeline;
+  control01 bootstrapping itself via cloud-init
+- **Why:** Rebuilds are repeatable and every step is idempotent. Destroying
+  between sessions removes the NAT gateway, instance, and address costs.
+  The flow needs the laptop's AWS credentials, SSH agent, and tunnel, so
+  it runs there. Anything not in Git or Ansible is lost on destroy, which
+  enforces infrastructure as code.
