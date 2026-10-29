@@ -1,0 +1,13 @@
+---
+wireguard_interface: wg0
+wireguard_port: 51820
+
+# The server's address inside the VPN. The /16 covers every team range;
+# each peer is still limited to its own /32 by AllowedIPs.
+wireguard_server_address: 10.8.0.1/16
+
+# Third-party repository, limited to wireguard-tools and fetched over HTTPS only.
+wireguard_epel_baseurl: https://dl.fedoraproject.org/pub/epel/10/Everything/$basearch/
+wireguard_epel_gpgkey: https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-10
+
+wireguard_peers: []

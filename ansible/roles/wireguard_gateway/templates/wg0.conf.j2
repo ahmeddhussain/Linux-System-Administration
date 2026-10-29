@@ -1,0 +1,14 @@
+# Managed by Ansible (role: wireguard_gateway). Do not edit by hand.
+[Interface]
+Address = {{ wireguard_server_address }}
+ListenPort = {{ wireguard_port }}
+PrivateKey = {{ wireguard_server_key.content | b64decode | trim }}
+PostUp = firewall-cmd --zone=trusted --change-interface=%i
+PostDown = firewall-cmd --zone=trusted --remove-interface=%i || true
+{% for peer in wireguard_peers %}
+
+[Peer]
+# {{ peer.name }} ({{ peer.team }})
+PublicKey = {{ peer.public_key }}
+AllowedIPs = {{ peer.address }}
+{% endfor %}

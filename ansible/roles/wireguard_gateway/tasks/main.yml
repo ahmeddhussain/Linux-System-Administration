@@ -1,0 +1,134 @@
+---
+- name: Refuse to run with missing or placeholder peer keys
+  ansible.builtin.assert:
+    that:
+      - item.public_key is match('^[A-Za-z0-9+/]{43}=$')
+    fail_msg: "Peer {{ item.name }} has no valid public key in inventory/group_vars/role_gateway.yml"
+    quiet: true
+  loop: "{{ wireguard_peers }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Import the EPEL signing key
+  ansible.builtin.rpm_key:
+    key: "{{ wireguard_epel_gpgkey }}"
+    state: present
+
+- name: Define a repository limited to wireguard-tools
+  ansible.builtin.yum_repository:
+    name: epel-wireguard
+    description: EPEL 10 (wireguard-tools only)
+    baseurl: "{{ wireguard_epel_baseurl }}"
+    gpgcheck: true
+    gpgkey: "{{ wireguard_epel_gpgkey }}"
+    includepkgs: wireguard-tools
+    enabled: true
+
+- name: Install the WireGuard tools
+  ansible.builtin.dnf:
+    name: wireguard-tools
+    state: present
+
+- name: Load the WireGuard kernel module now
+  ansible.builtin.command: modprobe wireguard
+  changed_when: false
+
+- name: Load the WireGuard kernel module at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/wireguard.conf
+    content: "wireguard\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-wireguard-forward.conf
+    sysctl_set: true
+    reload: true
+    state: present
+
+- name: Create the WireGuard configuration directory
+  ansible.builtin.file:
+    path: /etc/wireguard
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Generate the server private key (first run only)
+  ansible.builtin.shell: umask 077 && wg genkey > /etc/wireguard/server.key
+  args:
+    creates: /etc/wireguard/server.key
+
+- name: Read the server private key
+  ansible.builtin.slurp:
+    src: /etc/wireguard/server.key
+  register: wireguard_server_key
+  no_log: true
+
+- name: Derive the server public key
+  ansible.builtin.command: wg pubkey
+  args:
+    stdin: "{{ wireguard_server_key.content | b64decode }}"
+  register: wireguard_server_pubkey
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Publish the server public key for client configurations
+  ansible.builtin.copy:
+    dest: /etc/wireguard/server.pub
+    content: "{{ wireguard_server_pubkey.stdout }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Write the tunnel configuration
+  ansible.builtin.template:
+    src: wg0.conf.j2
+    dest: "/etc/wireguard/{{ wireguard_interface }}.conf"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart WireGuard
+
+- name: Allow the WireGuard port through the host firewall
+  ansible.posix.firewalld:
+    port: "{{ wireguard_port }}/udp"
+    zone: public
+    permanent: true
+    immediate: true
+    state: enabled
+
+- name: List firewalld policies
+  ansible.builtin.command: firewall-cmd --permanent --get-policies
+  register: wireguard_fw_policies
+  changed_when: false
+  check_mode: false
+
+- name: Create the policy that lets VPN traffic be forwarded into the VPC
+  ansible.builtin.command: "{{ item }}"
+  loop:
+    - firewall-cmd --permanent --new-policy vpn_to_vpc
+    - firewall-cmd --permanent --policy vpn_to_vpc --add-ingress-zone trusted
+    - firewall-cmd --permanent --policy vpn_to_vpc --add-egress-zone public
+    - firewall-cmd --permanent --policy vpn_to_vpc --set-target ACCEPT
+  when: "'vpn_to_vpc' not in wireguard_fw_policies.stdout.split()"
+  notify: Reload firewalld
+
+- name: Apply pending firewall and tunnel changes before starting the service
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the tunnel
+  ansible.builtin.systemd_service:
+    name: "wg-quick@{{ wireguard_interface }}"
+    enabled: true
+    state: started
+
+- name: Show the server public key
+  ansible.builtin.debug:
+    msg: "WireGuard server public key: {{ wireguard_server_pubkey.stdout }}"

@@ -3,3 +3,8 @@
   hosts: all
   roles:
     - base
+
+- name: VPN gateway
+  hosts: role_gateway
+  roles:
+    - wireguard_gateway

@@ -1,0 +1,8 @@
+---
+# VPN peers. Public keys are not secret. Each peer gets a fixed VPN address
+# from its team's range (admin 10.8.0.0/24, dev 10.8.1.0/24, ops 10.8.2.0/24).
+wireguard_peers:
+  - name: ahmed-laptop
+    team: admin
+    address: 10.8.0.2/32
+    public_key: ~/.ssh/id_ed25519.pub

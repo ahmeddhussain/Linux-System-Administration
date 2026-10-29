@@ -1,0 +1,10 @@
+---
+# Order matters: a firewall reload clears the runtime zone binding of wg0,
+# and restarting the tunnel afterwards re-applies it (see PostUp in the template).
+- name: Reload firewalld
+  ansible.builtin.command: firewall-cmd --reload
+
+- name: Restart WireGuard
+  ansible.builtin.systemd_service:
+    name: "wg-quick@{{ wireguard_interface }}"
+    state: restarted
