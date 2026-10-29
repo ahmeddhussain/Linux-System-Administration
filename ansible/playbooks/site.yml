@@ -1,4 +1,7 @@
 ---
+- name: Patch every host to the same level first
+  ansible.builtin.import_playbook: patch.yml
+
 - name: Baseline configuration for every host
   hosts: all
   roles:

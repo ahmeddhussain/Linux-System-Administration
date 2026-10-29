@@ -285,3 +285,15 @@ Every design choice: what we chose, what else we considered, and why.
   The flow needs the laptop's AWS credentials, SSH agent, and tunnel, so
   it runs there. Anything not in Git or Ansible is lost on destroy, which
   enforces infrastructure as code.
+
+## D-033: WireGuard role - scoped HTTPS-only repo, peers as data
+- **Chosen:** Dedicated repo definition limited to wireguard-tools over
+  HTTPS; server key generated on gw01; peers listed in group_vars; routed
+  forwarding through a firewalld policy; VPN port opened in Terraform only
+  after the tunnel was configured
+- **Alternatives:** epel-release package (plain-HTTP mirrors blocked by our
+  egress rules and a broader third-party surface); compiling from source;
+  Libreswan; hand-editing the server
+- **Why:** Works within default-deny egress, limits third-party packages to
+  one, and makes adding a VPN user a one-line data change. Known gap: a
+  rebuild regenerates the server key; Ansible Vault is the planned fix.

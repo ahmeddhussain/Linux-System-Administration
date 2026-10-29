@@ -1,0 +1,41 @@
+---
+# Bring every host to the same patch level, then reboot when the OS says it
+# is required. Used for routine patching and as the first step of site.yml
+# for new or rebuilt hosts.
+- name: Patch all hosts
+  hosts: all
+  tasks:
+    - name: Install the reboot-check tool
+      ansible.builtin.dnf:
+        name: dnf-utils
+        state: present
+
+    - name: Update all packages to the latest available
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_cache: true
+
+    - name: Confirm systemd is healthy before any reboot
+      ansible.builtin.command: systemctl --version
+      changed_when: false
+
+    - name: Check whether a reboot is required
+      ansible.builtin.command: dnf needs-restarting -r
+      register: patch_reboot_check
+      changed_when: false
+      failed_when: patch_reboot_check.rc not in [0, 1]
+
+    - name: Reboot hosts that need it (never the control node itself)
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+      when:
+        - patch_reboot_check.rc == 1
+        - inventory_hostname != 'control01'
+
+    - name: Report that control01 needs a manual reboot
+      ansible.builtin.debug:
+        msg: "control01 needs a reboot. Run: sudo reboot, then wait about a minute."
+      when:
+        - patch_reboot_check.rc == 1
+        - inventory_hostname == 'control01'
