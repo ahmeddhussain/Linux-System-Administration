@@ -243,7 +243,7 @@ Every design choice: what we chose, what else we considered, and why.
 - **Why:** Git is the source of truth and control01 is the only place
   changes are applied, which keeps the audit trail and the network model
   intact.
-  
+
 ## D-029: Ansible inventory - AWS dynamic inventory grouped by tags
 - **Chosen:** amazon.aws.aws_ec2 plugin; groups from the Role and Team tags;
   control01 reads it through an IAM instance profile that can only describe
@@ -252,3 +252,25 @@ Every design choice: what we chose, what else we considered, and why.
 - **Why:** AWS is the source of truth, so the inventory cannot drift, and
   adding a host or team in Terraform makes it appear in the right groups
   automatically. Tradeoff: depends on correct tags and API reachability.
+
+## D-030: Ansible runtime - Python virtual environment with pinned versions
+- **Chosen:** venv on control01 with ansible-core 2.18 and boto3, versions
+  pinned in ansible/requirements.txt
+- **Alternatives:** OS-packaged ansible-core; pip --user into system Python;
+  container execution environments
+- **Why:** The packaged ansible-core is older than current collections
+  support, and system Python should stay untouched. A pinned venv is
+  reproducible and rebuildable from Git. Execution environments are the
+  production upgrade path.
+  
+## D-031: Baseline configuration - Ansible base role on every host
+- **Chosen:** Role applied by site.yml: troubleshooting packages, UTC and
+  chrony, SELinux enforcing, firewalld with SSH, SSH hardening as a drop-in
+  file validated with sshd -t before restart, login banner
+- **Alternatives:** One long playbook; shell scripts; editing sshd_config
+  in place; disabling SELinux or firewalld for convenience
+- **Why:** A role is reusable and every later layer follows the same
+  structure. Host firewall and SELinux sit behind the security groups as
+  independent layers. A drop-in avoids editing vendor files, and validating
+  before restarting prevents self-inflicted lockouts. Timekeeping is
+  required for Kerberos and for correlating logs.
