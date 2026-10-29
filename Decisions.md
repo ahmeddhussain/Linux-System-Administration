@@ -297,3 +297,15 @@ Every design choice: what we chose, what else we considered, and why.
 - **Why:** Works within default-deny egress, limits third-party packages to
   one, and makes adding a VPN user a one-line data change. Known gap: a
   rebuild regenerates the server key; Ansible Vault is the planned fix.
+
+## D-034: Patch baseline - fleet-wide update before configuration
+- **Chosen:** patch.yml updates every package, verifies systemd, and
+  reboots only when dnf needs-restarting says so; control01 is rebooted
+  manually; patching runs first in site.yml
+- **Alternatives:** Golden image built with Image Builder or Packer;
+  Red Hat Satellite content views; pinning repositories to 10.0; patching
+  inside the base role
+- **Why:** The image is RHEL 10.0 while the repositories serve 10.2 builds,
+  so hosts drifted apart depending on what was installed and when. A partial
+  update on gw01 broke systemctl. A single patch level plus a health check
+  before reboot prevents both. Golden images are the production upgrade.
