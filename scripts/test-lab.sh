@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Runs on control01. Usage from your laptop:
-#   ssh control01 'bash -s' < scripts/test-lab.sh            (fast checks)
-#   ssh control01 'bash -s -s -- --full' < scripts/test-lab.sh   (adds the slow idempotency run)
+# Runs on control01. Usage from your laptop, in the repo directory:
+#   ssh control01 'bash -s' < scripts/test-lab.sh                  (fast checks)
+#   ssh control01 'bash -s -- --full' < scripts/test-lab.sh        (adds the slow idempotency run)
 
 main() {
   local full="no"
@@ -11,6 +11,10 @@ main() {
   cd "$HOME/ahmed-infra/ansible" || exit 1
   # shellcheck disable=SC1091
   source "$HOME/ansible-venv/bin/activate"
+
+  # These checks test how a server treats a login attempt, not who the server
+  # is, so they ignore remembered host keys.
+  local ssh_probe="ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
   # check "description" "command"  -> PASS when the command succeeds
   check() {
@@ -57,9 +61,9 @@ main() {
   check "firewalld, chronyd, sshd active everywhere" "ansible all -b -m shell -a 'for s in firewalld chronyd sshd; do systemctl is-active --quiet \$s || exit 1; done'"
   check "sshd effective settings are hardened"     "ansible all -b -m shell -a '[ \$(sshd -T | grep -cE \"^(permitrootlogin no|passwordauthentication no|maxauthtries 4)\$\") -eq 3 ]'"
   check "clocks are synchronized"                  "ansible all -b -m shell -a 'chronyc tracking | grep -q \"Leap status.*Normal\"'"
-  check "password login is refused"                "ssh -n -o BatchMode=yes -o PreferredAuthentications=password -o PubkeyAuthentication=no ansible@10.0.2.10 true 2>&1 | grep -q 'Permission denied'"
-  check "root login is refused"                    "ssh -n -o BatchMode=yes -i ~/.ssh/ansible_ed25519 root@10.0.2.10 true 2>&1 | grep -q 'Permission denied'"
-  check "login banner is shown"                    "ssh -n -o BatchMode=yes ansible@10.0.2.10 true 2>&1 | grep -q 'Authorized access only'"
+  check "password login is refused"                "$ssh_probe -o PreferredAuthentications=password -o PubkeyAuthentication=no ansible@10.0.2.10 true 2>&1 | grep -q 'Permission denied'"
+  check "root login is refused"                    "$ssh_probe -i ~/.ssh/ansible_ed25519 root@10.0.2.10 true 2>&1 | grep -q 'Permission denied'"
+  check "login banner is shown"                    "$ssh_probe ansible@10.0.2.10 true 2>&1 | grep -q 'Authorized access only'"
 
   echo "== Patch level"
   check "systemd is the same version everywhere"   "[ \"\$(ansible all -m command -a \"rpm -q --qf '%{VERSION}-%{RELEASE}' systemd\" -o | sed 's/.*(stdout) //' | sort -u | wc -l)\" = 1 ]"

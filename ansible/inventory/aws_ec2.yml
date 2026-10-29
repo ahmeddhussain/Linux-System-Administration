@@ -18,6 +18,10 @@ compose:
   # Connect over private addresses; control01 manages itself locally.
   ansible_host: private_ip_address
   ansible_connection: "'local' if ec2_tags['Name'] == 'control01' else 'ssh'"
+  # Remember each host's SSH key under its instance ID, not its IP address.
+  # Replacing a server reuses the IP but never the ID, so the old key is not
+  # confused with the new one.
+  ansible_ssh_common_args: "'-o HostKeyAlias=' + instance_id"
 
 # Groups are built from the Role and Team tags set by Terraform:
 # role_gateway, role_control, role_idm, role_util, role_workstation,

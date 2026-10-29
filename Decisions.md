@@ -309,3 +309,10 @@ Every design choice: what we chose, what else we considered, and why.
   so hosts drifted apart depending on what was installed and when. A partial
   update on gw01 broke systemctl. A single patch level plus a health check
   before reboot prevents both. Golden images are the production upgrade.
+
+## D-035: Verification - tests as a script in Git
+- **Chosen:** scripts/test-lab.sh run on control01, grouped by layer, with
+  explicit "must be blocked" checks and an optional idempotency run
+- **Alternatives:** Manual spot checks; Molecule or InSpec
+- **Why:** Repeatable after every change and rebuild, and it tests denial as
+  well as access, which is where default-deny designs usually fail.
