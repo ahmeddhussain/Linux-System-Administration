@@ -337,3 +337,23 @@ Every design choice: what we chose, what else we considered, and why.
   the fleet; the killed update left crypto-policies ahead of the SSH client,
   which broke every outbound SSH connection. A control node must not be the
   weakest machine, and batching limits load during updates.
+
+## D-038: VPN firewall zone - permanent interface binding
+- **Chosen:** wg0 bound to the trusted zone in firewalld's permanent
+  configuration; the tunnel config no longer runs firewall commands; the
+  role fails if the running tunnel does not have every configured peer
+- **Alternatives:** Runtime binding through PostUp in wg0.conf
+- **Why:** Runtime firewall state is wiped by any firewalld reload, restart,
+  or package update, which silently broke VPN forwarding after patching. A
+  permanent binding survives all of these.
+
+## D-039: VPN endpoint open to any source address
+- **Chosen:** UDP 51820 on gw01 allowed from 0.0.0.0/0 (vpn_client_cidr);
+  access is controlled by WireGuard peer keys
+- **Alternatives:** Allow only the admin's IP; allow the provider's address
+  range; AWS Client VPN
+- **Why:** Employees connect from anywhere, and a VPN gateway cannot know
+  their addresses in advance. WireGuard silently drops any packet not signed
+  by a known key, so the open port reveals nothing. All other ports stay
+  closed to the internet. (The original reason, a changing admin address,
+  was disproved during INC-001.) Amends D-023 and D-026.

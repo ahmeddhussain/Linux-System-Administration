@@ -48,15 +48,16 @@ locals {
 
   # From outside a role: IP ranges allowed in.
   cidr_ingress = merge(
-    # The VPN endpoint: closed until WireGuard is configured on gw01.
+    # The VPN endpoint: closed until WireGuard is configured on gw01. Open to
+    # any address because WireGuard only answers peers with a known key.
     {
       for k, v in {
         vpn_endpoint = {
           role        = "gateway"
-          cidr        = var.admin_cidr
+          cidr        = var.vpn_client_cidr
           protocol    = "udp"
           port        = 51820
-          description = "WireGuard VPN endpoint from admin IP"
+          description = "WireGuard VPN endpoint (key-authenticated)"
         }
       } : k => v if var.enable_vpn_endpoint
     },

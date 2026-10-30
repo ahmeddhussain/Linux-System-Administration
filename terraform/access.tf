@@ -1,7 +1,13 @@
 variable "enable_vpn_endpoint" {
-  description = "Open UDP 51820 on gw01 to the admin IP. Keep false until WireGuard is configured on gw01."
+  description = "Open the WireGuard port on gw01. Keep false until WireGuard is configured on gw01."
   type        = bool
   default     = false
+}
+
+variable "vpn_client_cidr" {
+  description = "Where VPN clients may connect from. WireGuard ignores any packet not signed by a known peer key, so the port is safe to expose; set a narrower range only if every client has a fixed address."
+  type        = string
+  default     = "0.0.0.0/0"
 }
 
 # AWS-managed tunnel into private instances, authenticated with AWS
