@@ -1,6 +1,4 @@
 ---
-# Order matters: a firewall reload clears the runtime zone binding of wg0,
-# and restarting the tunnel afterwards re-applies it (see PostUp in the template).
 - name: Reload firewalld
   ansible.builtin.command: firewall-cmd --reload
 

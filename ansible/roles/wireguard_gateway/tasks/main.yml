@@ -1,4 +1,11 @@
 ---
+- name: Refuse to run without peers
+  ansible.builtin.assert:
+    that:
+      - wireguard_peers | length > 0
+    fail_msg: "No VPN peers defined. Add them to inventory/group_vars/role_gateway.yml"
+    quiet: true
+
 - name: Refuse to run with missing or placeholder peer keys
   ansible.builtin.assert:
     that:
@@ -104,6 +111,14 @@
     immediate: true
     state: enabled
 
+- name: Bind the tunnel interface to the trusted zone permanently
+  ansible.posix.firewalld:
+    interface: "{{ wireguard_interface }}"
+    zone: trusted
+    permanent: true
+    immediate: true
+    state: enabled
+
 - name: List firewalld policies
   ansible.builtin.command: firewall-cmd --permanent --get-policies
   register: wireguard_fw_policies
@@ -128,6 +143,13 @@
     name: "wg-quick@{{ wireguard_interface }}"
     enabled: true
     state: started
+
+- name: Confirm the running tunnel has every configured peer
+  ansible.builtin.shell: "wg show {{ wireguard_interface }} peers | wc -l"
+  register: wireguard_running_peers
+  changed_when: false
+  check_mode: false
+  failed_when: (wireguard_running_peers.stdout | int) != (wireguard_peers | length)
 
 - name: Show the server public key
   ansible.builtin.debug:
