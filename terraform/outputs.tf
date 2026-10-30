@@ -24,8 +24,8 @@ output "gateway_public_ip" {
 }
 
 output "vpn_endpoint" {
-  description = "WireGuard endpoint clients connect to"
-  value       = "${module.hosts["gw01"].public_ip}:51820"
+  description = "wstunnel address VPN clients connect to (WireGuard inside TLS)"
+  value       = "wss://${module.hosts["gw01"].public_ip}:443"
 }
 
 output "hosts" {

@@ -16,6 +16,13 @@
   loop_control:
     label: "{{ item.name }}"
 
+- name: Refuse to install wstunnel without a pinned checksum
+  ansible.builtin.assert:
+    that:
+      - wstunnel_sha256 is match('^[0-9a-f]{64}$')
+    fail_msg: "Set wstunnel_sha256 in roles/wireguard_gateway/defaults/main.yml"
+    quiet: true
+
 - name: Import the EPEL signing key
   ansible.builtin.rpm_key:
     key: "{{ wireguard_epel_gpgkey }}"
@@ -103,9 +110,17 @@
   no_log: true
   notify: Restart WireGuard
 
-- name: Allow the WireGuard port through the host firewall
+- name: Close WireGuard's own UDP port to the outside (it is reached through wstunnel)
   ansible.posix.firewalld:
     port: "{{ wireguard_port }}/udp"
+    zone: public
+    permanent: true
+    immediate: true
+    state: disabled
+
+- name: Allow the wstunnel port through the host firewall
+  ansible.posix.firewalld:
+    port: "{{ wstunnel_port }}/tcp"
     zone: public
     permanent: true
     immediate: true
@@ -135,7 +150,53 @@
   when: "'vpn_to_vpc' not in wireguard_fw_policies.stdout.split()"
   notify: Reload firewalld
 
-- name: Apply pending firewall and tunnel changes before starting the service
+- name: Create the wstunnel download directory
+  ansible.builtin.file:
+    path: "/opt/wstunnel/{{ wstunnel_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download wstunnel (pinned version, checksum verified)
+  ansible.builtin.get_url:
+    url: "{{ wstunnel_url }}"
+    dest: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel.tar.gz"
+    checksum: "sha256:{{ wstunnel_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Unpack wstunnel
+  ansible.builtin.unarchive:
+    src: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel.tar.gz"
+    dest: "/opt/wstunnel/{{ wstunnel_version }}"
+    remote_src: true
+    owner: root
+    group: root
+    creates: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel"
+
+- name: Install the wstunnel binary (root-owned, executable, SELinux bin_t)
+  ansible.builtin.copy:
+    src: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel"
+    dest: /usr/local/bin/wstunnel
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+    setype: bin_t
+  notify: Restart wstunnel
+
+- name: Install the wstunnel service
+  ansible.builtin.template:
+    src: wstunnel.service.j2
+    dest: /etc/systemd/system/wstunnel.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart wstunnel
+
+- name: Apply pending firewall, tunnel, and wstunnel changes before starting services
   ansible.builtin.meta: flush_handlers
 
 - name: Enable and start the tunnel
@@ -144,12 +205,26 @@
     enabled: true
     state: started
 
+- name: Enable and start wstunnel
+  ansible.builtin.systemd_service:
+    name: wstunnel
+    enabled: true
+    state: started
+    daemon_reload: true
+
 - name: Confirm the running tunnel has every configured peer
   ansible.builtin.shell: "wg show {{ wireguard_interface }} peers | wc -l"
   register: wireguard_running_peers
   changed_when: false
   check_mode: false
   failed_when: (wireguard_running_peers.stdout | int) != (wireguard_peers | length)
+
+- name: Confirm wstunnel is listening
+  ansible.builtin.command: "ss -Htln sport = :{{ wstunnel_port }}"
+  register: wstunnel_listen
+  changed_when: false
+  check_mode: false
+  failed_when: wstunnel_listen.stdout | length == 0
 
 - name: Show the server public key
   ansible.builtin.debug:

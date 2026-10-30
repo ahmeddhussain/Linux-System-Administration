@@ -11,3 +11,12 @@ wireguard_epel_baseurl: https://dl.fedoraproject.org/pub/epel/10/Everything/$bas
 wireguard_epel_gpgkey: https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-10
 
 wireguard_peers: []
+
+# wstunnel carries WireGuard inside TLS on TCP 443, because WireGuard's own
+# UDP traffic is dropped on some client networks (see INC-001). The TLS layer
+# is camouflage only; WireGuard inside provides encryption and authentication.
+wstunnel_version: "11.1.0"
+wstunnel_url: "https://github.com/erebe/wstunnel/releases/download/v{{ wstunnel_version }}/wstunnel_{{ wstunnel_version }}_linux_amd64.tar.gz"
+wstunnel_sha256: 512edf4e7bb64fc133522220123514868fae75b5bae4124b53e396787276aa23
+wstunnel_port: 443
+

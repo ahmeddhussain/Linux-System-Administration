@@ -6,3 +6,9 @@
   ansible.builtin.systemd_service:
     name: "wg-quick@{{ wireguard_interface }}"
     state: restarted
+
+- name: Restart wstunnel
+  ansible.builtin.systemd_service:
+    name: wstunnel
+    state: restarted
+    daemon_reload: true
