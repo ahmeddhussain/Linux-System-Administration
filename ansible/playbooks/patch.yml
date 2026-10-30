@@ -1,9 +1,11 @@
 ---
 # Bring every host to the same patch level, then reboot when the OS says it
-# is required. Used for routine patching and as the first step of site.yml
-# for new or rebuilt hosts.
+# is required. Hosts are patched two at a time so no machine, including the
+# control node, is overloaded. Used for routine patching and as the first
+# step of site.yml for new or rebuilt hosts.
 - name: Patch all hosts
   hosts: all
+  serial: 2
   tasks:
     - name: Install the reboot-check tool
       ansible.builtin.dnf:
@@ -18,6 +20,10 @@
 
     - name: Confirm systemd is healthy before any reboot
       ansible.builtin.command: systemctl --version
+      changed_when: false
+
+    - name: Confirm the SSH client and server configurations still parse
+      ansible.builtin.shell: ssh -G localhost > /dev/null && /usr/sbin/sshd -t
       changed_when: false
 
     - name: Check whether a reboot is required

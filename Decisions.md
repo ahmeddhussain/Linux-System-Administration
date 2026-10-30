@@ -316,3 +316,24 @@ Every design choice: what we chose, what else we considered, and why.
 - **Alternatives:** Manual spot checks; Molecule or InSpec
 - **Why:** Repeatable after every change and rebuild, and it tests denial as
   well as access, which is where default-deny designs usually fail.
+## D-036: SSH host identity - keyed to instance ID, not IP
+- **Chosen:** HostKeyAlias set to the EC2 instance ID in the dynamic
+  inventory; accept-new (trust on first use) kept
+- **Alternatives:** Remove stale known_hosts lines by hand after each
+  replacement; disable host key checking; central host keys through FreeIPA
+  (SSHFP)
+- **Why:** Fixed private IPs are reused when a server is replaced, but
+  instance IDs are not, so a new host is a new identity and impersonation is
+  still detected. Disabling checking would make every connection blind.
+  FreeIPA-managed host keys are the planned upgrade and close the
+  trust-on-first-use gap.
+## D-037: Control node sizing and patch batching
+- **Chosen:** control01 and gw01 on t3.small (2 GB); patch.yml runs two
+  hosts at a time and checks that the SSH configuration still parses before
+  any reboot
+- **Alternatives:** Swap file on 1 GB hosts; excluding control01 from
+  patching; patching all hosts at once
+- **Why:** On 1 GB, control01 ran out of memory while patching itself and
+  the fleet; the killed update left crypto-policies ahead of the SSH client,
+  which broke every outbound SSH connection. A control node must not be the
+  weakest machine, and batching limits load during updates.

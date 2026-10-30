@@ -20,7 +20,7 @@ variable "hosts" {
       role              = "gateway"
       subnet            = "public"
       private_ip        = "10.0.0.10"
-      instance_type     = "t3.micro"
+      instance_type     = "t3.small"
       team              = "platform"
       allocate_eip      = true
       source_dest_check = false # required: gw01 forwards VPN traffic
@@ -29,7 +29,7 @@ variable "hosts" {
       role             = "control"
       subnet           = "infra"
       private_ip       = "10.0.1.10"
-      instance_type    = "t3.micro"
+      instance_type    = "t3.small" # runs Ansible against the whole fleet
       team             = "platform"
       inventory_reader = true # may describe instances for the dynamic inventory
     }
@@ -37,7 +37,7 @@ variable "hosts" {
       role          = "idm"
       subnet        = "infra"
       private_ip    = "10.0.1.11"
-      instance_type = "c7i-flex.large" # 4 GB for FreeIPA; confirm it is on your free-tier list
+      instance_type = "c7i-flex.large" # 4 GB for FreeIPA
       team          = "platform"
     }
     util01 = {
