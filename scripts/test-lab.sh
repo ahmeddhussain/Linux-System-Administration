@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs on control01. Usage from your laptop, in the repo directory:
-#   ssh control01 'bash -s' < scripts/test-lab.sh                  (fast checks)
-#   ssh control01 'bash -s -- --full' < scripts/test-lab.sh        (adds the slow idempotency run)
+#   scripts/lab.sh verify            (fast checks)
+#   scripts/lab.sh verify --full     (adds the slow idempotency run)
 
 main() {
   local full="no"
@@ -76,6 +76,9 @@ main() {
   check "wg0 is in the trusted firewall zone"      "ansible gw01 -b -m shell -a 'firewall-cmd --get-active-zones | grep -q wg0'"
   check "IPv4 forwarding is enabled"               "ansible gw01 -b -m shell -a 'test \$(sysctl -n net.ipv4.ip_forward) = 1'"
   check "vpn_to_vpc forwarding policy exists"      "ansible gw01 -b -m shell -a 'firewall-cmd --get-policies | grep -qw vpn_to_vpc'"
+  check "wstunnel is active"                       "ansible gw01 -b -m shell -a 'systemctl is-active --quiet wstunnel'"
+  check "wstunnel listens on TCP 443"              "ansible gw01 -b -m shell -a 'ss -Htln sport = :443 | grep -q .'"
+  check "WireGuard UDP port is closed to the outside" "ansible gw01 -b -m shell -a '! firewall-cmd --zone=public --list-ports | grep -qw 51820/udp'"
 
   if [ "$full" = "yes" ]; then
     echo "== Idempotency (slow): a full site.yml run must change nothing"

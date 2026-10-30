@@ -357,3 +357,17 @@ Every design choice: what we chose, what else we considered, and why.
   by a known key, so the open port reveals nothing. All other ports stay
   closed to the internet. (The original reason, a changing admin address,
   was disproved during INC-001.) Amends D-023 and D-026.
+
+## D-040: VPN transport - WireGuard inside TLS on TCP 443 (wstunnel)
+- **Chosen:** wstunnel server on gw01 (pinned version, SHA-256 verified,
+  unprivileged systemd service) carrying WireGuard inside TLS on TCP 443;
+  WireGuard's UDP 51820 is closed to the internet and reached only through
+  wstunnel on localhost
+- **Alternatives:** Plain WireGuard on UDP 51820; WireGuard on a different
+  UDP port; OpenVPN over TCP 443; AmneziaWG
+- **Why:** INC-001 proved that WireGuard traffic is dropped on the admin's
+  network while ordinary HTTPS passes. Changing the port would not help
+  because the traffic is recognized by content. wstunnel keeps every part
+  of the WireGuard design. The TLS layer is camouflage only; WireGuard
+  inside provides encryption and peer authentication. Tradeoffs: one
+  third-party binary, and TCP adds latency. Amends D-023 and D-039.
