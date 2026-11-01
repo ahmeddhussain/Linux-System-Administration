@@ -371,3 +371,11 @@ Every design choice: what we chose, what else we considered, and why.
   of the WireGuard design. The TLS layer is camouflage only; WireGuard
   inside provides encryption and peer authentication. Tradeoffs: one
   third-party binary, and TCP adds latency. Amends D-023 and D-039.
+## D-041: Lab scripts split by responsibility; VPN client automated
+- **Chosen:** lab.sh as a thin entry point over lib/ (infra, control01,
+  configure); a separate vpn-client.sh for the laptop; up reboots control01
+  when patching requires it, runs the tests, and refreshes the VPN client
+- **Alternatives:** One long lab.sh; a Makefile; manual steps after rebuild
+- **Why:** Each file has one job, and a rebuild ends ready to connect with
+  no manual edits. The gateway key still changes per rebuild until it is
+  stored in Ansible Vault.
