@@ -209,6 +209,28 @@
   hosts: ipaclients
   serial: 3
   tasks:
+    # After losing idm01 SSSD backs off for up to an hour before retrying,
+    # and stays offline even once the network is back (seen 2026-11-01
+    # after a security group change). SIGUSR2 tells it to go online now.
+    - name: Check whether SSSD is online
+      ansible.builtin.command: "sssctl domain-status {{ ipa_domain }} -o"
+      register: ipa_sssd_status
+      changed_when: false
+      check_mode: false
+
+    - name: Tell an offline SSSD to reconnect
+      ansible.builtin.command: systemctl kill --signal=SIGUSR2 sssd
+      when: "'Offline' in ipa_sssd_status.stdout"
+
+    - name: Wait until SSSD is online
+      ansible.builtin.command: "sssctl domain-status {{ ipa_domain }} -o"
+      register: ipa_sssd_online
+      until: "'Online' in ipa_sssd_online.stdout"
+      retries: 15
+      delay: 2
+      changed_when: false
+      check_mode: false
+
     - name: Record the checksum of the identity data on this client
       ansible.builtin.copy:
         dest: /var/lib/sss/ahmed-identity.sha256

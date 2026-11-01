@@ -197,6 +197,7 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   check "names outside ahmed.internal still resolve" "ansible ipaclients -m shell -a 'getent hosts cdn.redhat.com'"
   check "every client is enrolled (host keytab)"   "ansible ipaclients -b -m shell -a 'klist -k /etc/krb5.keytab | grep -q host/'"
   check "SSSD resolves IPA accounts on every client" "ansible ipaclients -m shell -a 'id admin'"
+  check "SSSD is online on every client"           "ansible ipaclients -b -m shell -a 'sssctl domain-status ahmed.internal -o | grep -q Online'"
   check "SSHFP records published (ws-dev01)"       "ansible ws-dev01 -m shell -a 'dig +short SSHFP ws-dev01.ahmed.internal | grep -q .'"
   check "no default allow_all login rule"          "ansible idm01 -b -m shell -a 'export KRB5CCNAME=\$(mktemp -u); kinit -k && ! ipa hbacrule-show allow_all; rc=\$?; kdestroy; exit \$rc'"
   reach ws-dev01  10.0.1.11 88  open
