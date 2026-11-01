@@ -181,6 +181,20 @@
       loop_control:
         label: "{{ item.name }}"
 
+    # Reverse DNS for every host. Enrollment created only the forward
+    # records; rsyslog names log directories by the sender's PTR (D-059).
+    - name: Reverse DNS (PTR) record for every host
+      vars:
+        ip: "{{ hostvars[item].ansible_host }}"
+      freeipa.ansible_freeipa.ipadnsrecord:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        zone_name: "{{ ip.split('.')[2] }}.{{ ip.split('.')[1] }}.{{ ip.split('.')[0] }}.in-addr.arpa."
+        name: "{{ ip.split('.')[3] }}"
+        record_type: PTR
+        record_value: "{{ item }}.{{ ipa_domain }}."
+        state: present
+      loop: "{{ groups['all'] | sort }}"
+
     # Automount (D-058): /users/<name> comes from util01 on the workstations.
     - name: Automount map for home directories
       freeipa.ansible_freeipa.ipaautomountmap:

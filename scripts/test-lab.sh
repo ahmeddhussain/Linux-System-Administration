@@ -241,10 +241,10 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   check "every host has a valid IPA certificate for rsyslog" "ansible all -b -m shell -a 'ipa-getcert list -i rsyslog | grep -q \"status: MONITORING\"'"
   logtoken="logcheck-$(date +%s)"
   ansible all -m command -a "logger -t ahmed-logtest $logtoken" > /dev/null 2>&1
-  logger -n util01.ahmed.internal -P 6514 -T "plain-$logtoken" 2> /dev/null
+  logger -n util01.ahmed.internal -P 6514 -T -t ahmed-plaintest "plain-$logtoken" 2> /dev/null
   sleep 8
   check "a message from every host arrives on util01" "ansible util01 -b -m shell -a 'test \$(grep -l $logtoken /srv/logs/*/ahmed-logtest.log | wc -l) = 6'"
-  check "plain (non-TLS) syslog is not stored"       "ansible util01 -b -m shell -a '! grep -rq plain-$logtoken /srv/logs'"
+  check "plain (non-TLS) syslog is not stored"       "ansible util01 -b -m shell -a '! ls /srv/logs/*/ahmed-plaintest.log'"
   as_check "the security team (laila) can read the logs" laila 10.0.1.12 "grep -q $logtoken /srv/logs/*/ahmed-logtest.log"
   as_check "other teams (sara) cannot"                   sara  10.0.1.12 "! cat /srv/logs/*/ahmed-logtest.log"
 

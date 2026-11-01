@@ -15,6 +15,37 @@
     group: "{{ log_reader_group }}"
     mode: "0750"
 
+# rsyslog.service sets UMask=0066, which turned the 0750/0640 modes into
+# 0710/0600 and locked the security team out (2026-11-02).
+- name: Create the rsyslog service drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/rsyslog.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Let rsyslog create group-readable files
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/rsyslog.service.d/ahmed-umask.conf
+    content: |
+      # Managed by Ansible (role: log_server) (D-059)
+      [Service]
+      UMask=0027
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd for rsyslog
+    - Restart rsyslog
+
+- name: Correct the modes of logs written before that
+  ansible.builtin.shell: |
+    find {{ log_dir }} -mindepth 1 -type d ! -perm 0750 -printf 'fixed %p\n' -exec chmod 0750 {} +
+    find {{ log_dir }} -mindepth 1 -type f ! -perm 0640 -printf 'fixed %p\n' -exec chmod 0640 {} +
+  register: log_server_modes
+  changed_when: "'fixed' in log_server_modes.stdout"
+
 - name: Receive logs over TLS and store them per host
   ansible.builtin.template:
     src: 20-ahmed-server.conf.j2

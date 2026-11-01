@@ -1,4 +1,8 @@
 ---
+- name: Reload systemd for rsyslog
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
 # Validate the whole configuration first; a broken rsyslog loses logs.
 - name: Restart rsyslog
   ansible.builtin.shell: rsyslogd -N1 && systemctl restart rsyslog
