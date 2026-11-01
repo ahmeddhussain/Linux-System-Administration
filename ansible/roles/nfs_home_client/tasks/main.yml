@@ -13,8 +13,11 @@
     name: autofs
     state: present
 
+# The marker is SSSD's automount location: RHEL's standard SSSD profile
+# already lists "sss" for automount in nsswitch.conf, so that line does not
+# show whether ipa-client-automount ran (it had not, 2026-11-01).
 - name: Check whether automount maps already come from IPA
-  ansible.builtin.command: grep -qE '^automount:.*\bsss\b' /etc/nsswitch.conf
+  ansible.builtin.command: grep -qE '^ipa_automount_location\s*=' /etc/sssd/sssd.conf
   register: nfs_home_client_nss
   changed_when: false
   failed_when: false
