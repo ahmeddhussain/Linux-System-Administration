@@ -1,0 +1,8 @@
+# Managed by Ansible (role: log_forwarder). Send every message to util01
+# over TLS and check its name (D-059). A disk-backed queue keeps messages
+# while util01 is unreachable.
+action(type="omfwd" target="{{ log_server_host }}" port="{{ log_server_port }}" protocol="tcp"
+  StreamDriver="ossl" StreamDriverMode="1"
+  StreamDriverAuthMode="x509/name" StreamDriverPermittedPeers="{{ log_server_host }}"
+  queue.type="LinkedList" queue.filename="fwd_util01" queue.maxDiskSpace="200m"
+  queue.saveOnShutdown="on" action.resumeRetryCount="-1" action.resumeInterval="10")

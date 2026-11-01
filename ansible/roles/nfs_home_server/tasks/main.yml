@@ -71,14 +71,26 @@
     label: "{{ item.name }}"
   register: nfs_home_dirs
 
+# Copy the files inside /etc/skel, not "/etc/skel/." itself: copying "."
+# with cp -a also copies its mode (0755) onto the home, which let a
+# squashed root read every home (found by test-lab.sh, 2026-11-01).
 - name: Copy the default files into new home directories
   ansible.builtin.shell: >-
-    cp -a --no-clobber /etc/skel/. '/export/home/{{ item.item.name }}/' &&
+    find /etc/skel -mindepth 1 -maxdepth 1 -exec cp -a --no-clobber {} '/export/home/{{ item.item.name }}/' \; &&
     chown -R '{{ item.item.name }}:{{ item.item.name }}' '/export/home/{{ item.item.name }}'
   when: item.changed
   loop: "{{ nfs_home_dirs.results }}"
   loop_control:
     label: "{{ item.item.name }}"
+
+- name: Keep every home directory private
+  ansible.builtin.file:
+    path: "/export/home/{{ item.name }}"
+    state: directory
+    mode: "0700"
+  loop: "{{ hostvars[groups['ipaservers'][0]].ipa_users }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Apply SELinux labels to the home directories
   ansible.builtin.command: restorecon -Rv /export/home

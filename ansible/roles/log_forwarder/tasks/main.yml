@@ -1,0 +1,60 @@
+---
+# Every host sends its logs to util01 over TLS (D-059).
+
+- name: Install the rsyslog TLS driver
+  ansible.builtin.dnf:
+    name: rsyslog-openssl
+    state: present
+
+# The host's own certificate from the IPA CA; certmonger renews it and
+# restarts rsyslog when it does.
+- name: Check for this host's rsyslog certificate request
+  ansible.builtin.command: ipa-getcert list -i rsyslog
+  register: log_cert_list
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Request this host's rsyslog certificate from IPA
+  ansible.builtin.command: >-
+    ipa-getcert request -w -I rsyslog
+    -f {{ log_cert_file }} -k {{ log_key_file }}
+    -K host/{{ log_fqdn }} -D {{ log_fqdn }} -N CN={{ log_fqdn }}
+    -C "systemctl restart rsyslog"
+  when: "'Request ID' not in log_cert_list.stdout"
+
+- name: Confirm the certificate is issued and tracked
+  ansible.builtin.command: ipa-getcert list -i rsyslog
+  register: log_cert_status
+  until: "'status: MONITORING' in log_cert_status.stdout"
+  retries: 15
+  delay: 2
+  changed_when: false
+  check_mode: false
+
+- name: Configure TLS for rsyslog
+  ansible.builtin.template:
+    src: 10-ahmed-tls.conf.j2
+    dest: /etc/rsyslog.d/10-ahmed-tls.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart rsyslog
+
+- name: Forward every message to util01
+  ansible.builtin.template:
+    src: 90-ahmed-forward.conf.j2
+    dest: /etc/rsyslog.d/90-ahmed-forward.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart rsyslog
+
+- name: Apply changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Keep rsyslog running
+  ansible.builtin.systemd_service:
+    name: rsyslog
+    enabled: true
+    state: started

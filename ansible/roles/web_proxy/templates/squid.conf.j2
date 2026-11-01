@@ -25,4 +25,6 @@ http_access deny all
 
 cache deny all
 access_log daemon:/var/log/squid/access.log squid
+# Also to syslog, so util01's central logs include web access (D-059).
+access_log syslog:local4.info squid
 coredump_dir /var/spool/squid

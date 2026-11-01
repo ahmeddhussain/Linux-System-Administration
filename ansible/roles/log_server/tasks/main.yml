@@ -1,0 +1,56 @@
+---
+# Central rsyslog on util01 (D-059). Runs before log_forwarder, which also
+# gives util01 its certificate and forwards util01's own logs here.
+
+- name: Install the rsyslog TLS driver
+  ansible.builtin.dnf:
+    name: rsyslog-openssl
+    state: present
+
+- name: Let the security team read the log directory
+  ansible.builtin.file:
+    path: "{{ log_dir }}"
+    state: directory
+    owner: root
+    group: "{{ log_reader_group }}"
+    mode: "0750"
+
+- name: Receive logs over TLS and store them per host
+  ansible.builtin.template:
+    src: 20-ahmed-server.conf.j2
+    dest: /etc/rsyslog.d/20-ahmed-server.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart rsyslog
+
+- name: Rotate the central logs (older copies live in the S3 backups)
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/ahmed-central-logs
+    content: |
+      # Managed by Ansible (role: log_server) (D-059)
+      {{ log_dir }}/*/*.log {
+          daily
+          rotate {{ log_retention_days }}
+          compress
+          delaycompress
+          missingok
+          notifempty
+          sharedscripts
+          postrotate
+              /usr/bin/systemctl kill -s HUP rsyslog.service >/dev/null 2>&1 || true
+          endscript
+      }
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Open the log port to the VPC only
+  ansible.posix.firewalld:
+    rich_rule: >-
+      rule family="ipv4" source address="10.0.0.0/16"
+      port port="{{ log_server_port }}" protocol="tcp" accept
+    zone: public
+    permanent: true
+    immediate: true
+    state: enabled

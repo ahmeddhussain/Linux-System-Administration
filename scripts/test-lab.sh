@@ -237,6 +237,17 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   sudo_as contractor1 10.0.2.10 id denied
   login   contractor1 10.0.1.12 denied
 
+  echo "== Central logs over TLS on util01 (D-059)"
+  check "every host has a valid IPA certificate for rsyslog" "ansible all -b -m shell -a 'ipa-getcert list -i rsyslog | grep -q \"status: MONITORING\"'"
+  logtoken="logcheck-$(date +%s)"
+  ansible all -m command -a "logger -t ahmed-logtest $logtoken" > /dev/null 2>&1
+  logger -n util01.ahmed.internal -P 6514 -T "plain-$logtoken" 2> /dev/null
+  sleep 8
+  check "a message from every host arrives on util01" "ansible util01 -b -m shell -a 'test \$(grep -l $logtoken /srv/logs/*/ahmed-logtest.log | wc -l) = 6'"
+  check "plain (non-TLS) syslog is not stored"       "ansible util01 -b -m shell -a '! grep -rq plain-$logtoken /srv/logs'"
+  as_check "the security team (laila) can read the logs" laila 10.0.1.12 "grep -q $logtoken /srv/logs/*/ahmed-logtest.log"
+  as_check "other teams (sara) cannot"                   sara  10.0.1.12 "! cat /srv/logs/*/ahmed-logtest.log"
+
   echo "== NFS home directories (D-058): util01 -> workstations"
   check "util01 exports homes, NFSv4 only"          "ansible util01 -b -m shell -a 'exportfs -s | grep -q /export/home && grep -q -- -3 /proc/fs/nfsd/versions'"
   as_check "ahmed's home on ws-dev01 is NFS at /users/ahmed" ahmed 10.0.2.10 'test "$PWD" = /users/ahmed && findmnt -n -o FSTYPE -T . | grep -q nfs4'

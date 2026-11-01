@@ -1,0 +1,8 @@
+# Managed by Ansible (role: log_forwarder). TLS for rsyslog with this host's
+# IPA certificate (D-059). Set once per host; the server on util01 uses it too.
+global(
+  DefaultNetstreamDriver="ossl"
+  DefaultNetstreamDriverCAFile="/etc/ipa/ca.crt"
+  DefaultNetstreamDriverCertFile="{{ log_cert_file }}"
+  DefaultNetstreamDriverKeyFile="{{ log_key_file }}"
+)

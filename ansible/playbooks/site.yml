@@ -15,6 +15,16 @@
   roles:
     - util_storage
 
+- name: Central log server on util01 (D-059)
+  hosts: role_util
+  roles:
+    - log_server
+
+- name: Every host sends its logs to util01 over TLS (D-059)
+  hosts: all
+  roles:
+    - log_forwarder
+
 - name: NFS home directories on util01 (D-058)
   hosts: role_util
   roles:

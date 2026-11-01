@@ -81,6 +81,16 @@ locals {
         }
       }
     ]...),
+    # Central logging over TLS to rsyslog on util01 (D-059).
+    {
+      for r in setsubtract(local.host_roles, ["util"]) : "${r}_to_util_syslog_tls" => {
+        from        = r
+        to          = "util"
+        protocol    = "tcp"
+        port        = 6514
+        description = "Logs over TLS to rsyslog on util01"
+      }
+    },
     # NFSv4 home directories on util01 (D-058).
     {
       for sg in local.workstation_sgs : "${sg}_to_util_nfs" => {

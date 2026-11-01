@@ -1,0 +1,19 @@
+# Managed by Ansible (role: log_server). Central log server on util01 (D-059).
+# Accepts TLS only, from senders with a valid certificate of the IPA CA.
+# The host directory comes from the sender's address (reverse DNS in IPA),
+# not from the hostname inside the message, so a host cannot write into
+# another host's directory.
+module(load="imtcp"
+  StreamDriver.Name="ossl" StreamDriver.Mode="1" StreamDriver.AuthMode="x509/certvalid")
+
+template(name="ahmed_per_host" type="string"
+  string="{{ log_dir }}/%FROMHOST%/%PROGRAMNAME:::secpath-replace%.log")
+
+ruleset(name="ahmed_remote") {
+  action(type="omfile" dynaFile="ahmed_per_host" createDirs="on"
+    dirCreateMode="0750" fileCreateMode="0640"
+    dirGroup="{{ log_reader_group }}" fileGroup="{{ log_reader_group }}")
+  stop
+}
+
+input(type="imtcp" port="{{ log_server_port }}" ruleset="ahmed_remote")

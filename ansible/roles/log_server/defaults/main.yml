@@ -1,0 +1,6 @@
+---
+log_dir: /srv/logs
+log_server_port: 6514
+log_retention_days: 14
+# IPA group that may read the central logs (security team, org-structure).
+log_reader_group: security

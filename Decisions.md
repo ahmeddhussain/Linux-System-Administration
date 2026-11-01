@@ -644,3 +644,21 @@ Every design choice: what we chose, what else we considered, and why.
   sec=sys the server trusts the workstation's user IDs, so root on a
   workstation (ops on ws-ops01) could read other users' homes; the
   upgrade is krb5p once users have passwords.
+
+## D-059: Central logs - rsyslog over TLS with IPA certificates, per host
+- **Chosen:** every host sends all messages to rsyslog on util01 over TCP
+  6514 with TLS (OpenSSL driver), using its own certificate from the IPA
+  CA (certmonger requests and renews it) and checking util01's name; a
+  disk-backed queue holds messages while util01 is down. util01 accepts
+  only senders with a valid IPA certificate and stores
+  /srv/logs/<host>/<program>.log, the host taken from the sender's address
+  (reverse DNS in IPA), readable by the IPA group security; 14 days of
+  rotation, older copies in the S3 backups (D-056). Squid's access log is
+  sent to syslog too.
+- **Alternatives:** plain TCP 514; RELP; only security-relevant logs; the
+  journal's own remote upload (systemd-journal-remote)
+- **Why:** Logs carry authentication and sudo records, so they are
+  encrypted and only accepted from hosts the IPA CA vouches for; the CA
+  already exists, so no new PKI. Naming directories by the sender's
+  address stops one host from writing into another's. Everything per host
+  is the easiest to search and to grant to the security team.
