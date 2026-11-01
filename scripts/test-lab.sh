@@ -73,6 +73,7 @@ main() {
   echo "== VPN gateway (gw01)"
   check "wg-quick@wg0 is active"                   "ansible gw01 -b -m shell -a 'systemctl is-active --quiet wg-quick@wg0'"
   check "wg0 has at least one peer"                "ansible gw01 -b -m shell -a 'wg show wg0 peers | grep -q .'"
+  check "gateway key matches the one clients have" "ansible gw01 -b -m shell -a 'test \"\$(wg show wg0 public-key)\" = {{ wireguard_server_public_key }}'"
   check "wg0 is in the trusted firewall zone"      "ansible gw01 -b -m shell -a 'firewall-cmd --get-active-zones | grep -q wg0'"
   check "IPv4 forwarding is enabled"               "ansible gw01 -b -m shell -a 'test \$(sysctl -n net.ipv4.ip_forward) = 1'"
   check "vpn_to_vpc forwarding policy exists"      "ansible gw01 -b -m shell -a 'firewall-cmd --get-policies | grep -qw vpn_to_vpc'"

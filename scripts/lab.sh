@@ -2,7 +2,7 @@
 # ahmed-infra lab control.
 #
 # Usage:
-#   scripts/lab.sh up [-y]          build everything, configure it, test it, refresh the VPN client
+#   scripts/lab.sh up [-y]          build everything, configure it, test it, refresh the VPN client (safety net)
 #   scripts/lab.sh resume           redo configuration and tests on existing infrastructure
 #   scripts/lab.sh verify [--full]  run the tests (--full adds the slow idempotency run)
 #   scripts/lab.sh status           show the instances

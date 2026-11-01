@@ -19,8 +19,10 @@ WireGuard's own UDP traffic is dropped on some networks (INC-001).
     scripts/vpn-client.sh status        show the tunnel state
     scripts/vpn-client.sh disconnect    stop the tunnel
 
-`scripts/lab.sh up` runs `scripts/vpn-client.sh refresh` automatically, which
-rewrites /etc/wireguard/ahmed.conf with the rebuilt gateway's key.
+The gateway's key and public address survive rebuilds (Ansible Vault, D-043;
+Elastic IP), so the client config stays valid. `scripts/lab.sh up` still runs
+`scripts/vpn-client.sh refresh` as a safety net; it rewrites
+/etc/wireguard/ahmed.conf with the same content unless the key has changed.
 
 ## Troubleshooting
 - `sudo wg show ahmed`: no "latest handshake" means nothing came back.

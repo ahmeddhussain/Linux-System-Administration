@@ -4,6 +4,11 @@
 # View or change it on control01 with: ansible-vault edit vault.yml
 wireguard_server_private_key: "{{ vault_wireguard_server_private_key }}"
 
+# Public half of that key, as every client has it. The role refuses to install
+# a vault key that does not match, and test-lab.sh checks the live gateway.
+# Change both together only when rotating the key on purpose.
+wireguard_server_public_key: pq8I2l7QAZgjHDOFEhtE11ivKmRMi4QlnejGrwj+VCk=
+
 # VPN peers. Public keys are not secret. Each peer gets a fixed VPN address
 # from its team's range (admin 10.8.0.0/24, dev 10.8.1.0/24, ops 10.8.2.0/24).
 # public_key is the WireGuard public key from the client's WireGuard app

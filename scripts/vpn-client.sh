@@ -42,7 +42,8 @@ cmd_refresh() {
   local private_key
   private_key="$(sudo cat "$WG_KEY")"
   sudo sh -c "umask 077; cat > '$WG_CONF'" << EOF
-# Written by scripts/vpn-client.sh refresh. Rerun it after every lab rebuild.
+# Written by scripts/vpn-client.sh refresh. The gateway key survives rebuilds
+# (Ansible Vault, D-043); rerun only if the key or your address changes.
 [Interface]
 PrivateKey = $private_key
 Address = $WG_ADDRESS

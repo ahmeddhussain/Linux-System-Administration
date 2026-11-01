@@ -296,7 +296,8 @@ Every design choice: what we chose, what else we considered, and why.
   Libreswan; hand-editing the server
 - **Why:** Works within default-deny egress, limits third-party packages to
   one, and makes adding a VPN user a one-line data change. Known gap: a
-  rebuild regenerates the server key; Ansible Vault is the planned fix.
+  rebuild regenerates the server key (closed by D-043: the key now comes
+  from Ansible Vault).
 
 ## D-034: Patch baseline - fleet-wide update before configuration
 - **Chosen:** patch.yml updates every package, verifies systemd, and
@@ -410,3 +411,9 @@ Every design choice: what we chose, what else we considered, and why.
   control01). Tradeoff: anyone with control01 root can read the password,
   which matches control01 already being the most trusted host. Rotating
   means rekeying every vault file before bumping vault_password_version.
+- **First use:** gw01's WireGuard private key in
+  group_vars/role_gateway/vault.yml, encrypted as a whole file (rather than
+  encrypt_string) so not even variable names are visible. The matching
+  public key is recorded in plain text next to it; the role refuses a vault
+  key that does not match, so a wrong vault file cannot silently break every
+  client.

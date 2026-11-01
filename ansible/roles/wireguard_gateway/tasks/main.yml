@@ -80,6 +80,27 @@
     group: root
     mode: "0700"
 
+- name: Derive the server public key
+  ansible.builtin.command: wg pubkey
+  args:
+    stdin: "{{ wireguard_server_private_key }}"
+  register: wireguard_server_pubkey
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+# A wrong vault key would silently break every client, so stop before
+# installing it.
+- name: Refuse a vault key that does not match the recorded public key
+  ansible.builtin.assert:
+    that:
+      - wireguard_server_pubkey.stdout == wireguard_server_public_key
+    fail_msg: >-
+      The vault key gives public key {{ wireguard_server_pubkey.stdout }}, but
+      wireguard_server_public_key is {{ wireguard_server_public_key }}.
+      Fix vault.yml, or update both on purpose when rotating the key.
+    quiet: true
+
 - name: Install the server private key from the vault
   ansible.builtin.copy:
     dest: /etc/wireguard/server.key
@@ -89,15 +110,6 @@
     mode: "0600"
   no_log: true
   notify: Restart WireGuard
-
-- name: Derive the server public key
-  ansible.builtin.command: wg pubkey
-  args:
-    stdin: "{{ wireguard_server_private_key }}"
-  register: wireguard_server_pubkey
-  changed_when: false
-  check_mode: false
-  no_log: true
 
 - name: Publish the server public key for client configurations
   ansible.builtin.copy:

@@ -15,6 +15,7 @@ wireguard_peers: []
 # Set from the vault in inventory/group_vars/role_gateway/. The role refuses
 # to run without it rather than generating a new key.
 wireguard_server_private_key: ""
+wireguard_server_public_key: ""
 
 # wstunnel carries WireGuard inside TLS on TCP 443, because WireGuard's own
 # UDP traffic is dropped on some client networks (see INC-001). The TLS layer
