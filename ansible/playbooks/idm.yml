@@ -209,24 +209,28 @@
   hosts: ipaclients
   serial: 3
   tasks:
-    # After losing idm01 SSSD backs off for up to an hour before retrying,
-    # and stays offline even once the network is back (seen 2026-11-01
-    # after a security group change). SIGUSR2 tells it to go online now.
+    # After losing idm01, SSSD can stay offline for minutes even once the
+    # network is back: it backs off, and its DNS library (c-ares) then
+    # prefers the VPC resolver, which answers "not found" for ahmed.internal
+    # (seen 2026-11-01 after a security group change; SIGUSR2 alone did not
+    # help within 30 s). A restart resets both.
     - name: Check whether SSSD is online
       ansible.builtin.command: "sssctl domain-status {{ ipa_domain }} -o"
       register: ipa_sssd_status
       changed_when: false
       check_mode: false
 
-    - name: Tell an offline SSSD to reconnect
-      ansible.builtin.command: systemctl kill --signal=SIGUSR2 sssd
+    - name: Restart an offline SSSD
+      ansible.builtin.systemd_service:
+        name: sssd
+        state: restarted
       when: "'Online status: Online' not in ipa_sssd_status.stdout"
 
     - name: Wait until SSSD is online
       ansible.builtin.command: "sssctl domain-status {{ ipa_domain }} -o"
       register: ipa_sssd_online
       until: "'Online status: Online' in ipa_sssd_online.stdout"
-      retries: 15
+      retries: 30
       delay: 2
       changed_when: false
       check_mode: false
