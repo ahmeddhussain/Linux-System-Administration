@@ -346,6 +346,8 @@ Every design choice: what we chose, what else we considered, and why.
 - **Chosen:** wg0 bound to the trusted zone in firewalld's permanent
   configuration; the tunnel config no longer runs firewall commands; the
   role fails if the running tunnel does not have every configured peer
+- **Superseded (2026-11-01) by D-052:** wg0 is now in a DROP zone and each
+  team range in its own zone; the permanent-configuration lesson stands.
 - **Alternatives:** Runtime binding through PostUp in wg0.conf
 - **Why:** Runtime firewall state is wiped by any firewalld reload, restart,
   or package update, which silently broke VPN forwarding after patching. A
