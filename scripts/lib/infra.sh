@@ -9,12 +9,11 @@ infra_apply() {
 }
 
 infra_destroy() {
-  if [ -z "${AUTO_APPROVE:-}" ]; then
-    read -r -p "Destroy ALL lab infrastructure? Type 'destroy' to continue: " answer
-    [ "$answer" = "destroy" ] || die "Cancelled."
-  fi
-  log "Terraform: destroy"
-  terraform -chdir="$TF_DIR" destroy -auto-approve
+  # Lab layer only: terraform/persistent and terraform/bootstrap have their
+  # own state and are never touched here. Without -y, Terraform lists every
+  # resource it will delete and asks for "yes" before deleting anything.
+  log "Terraform: destroy (lab layer)"
+  terraform -chdir="$TF_DIR" destroy ${AUTO_APPROVE:+-auto-approve}
   rm -f "$SSH_INCLUDE"
   echo "Done. The state bucket, Git repo, and your keys are untouched."
 }

@@ -1,5 +1,3 @@
-
-
 variable "aws_region" {
   description = "AWS region for the lab"
   type        = string
@@ -56,16 +54,6 @@ variable "enable_nat_gateway" {
   default     = true
 }
 
-variable "admin_cidr" {
-  description = "Your public IP in CIDR form (for example 203.0.113.10/32). Only this address can reach gw01."
-  type        = string
-
-  validation {
-    condition     = can(cidrhost(var.admin_cidr, 0)) && var.admin_cidr != "0.0.0.0/0"
-    error_message = "admin_cidr must be a valid CIDR block and must not be 0.0.0.0/0."
-  }
-}
-
 variable "vpn_cidr" {
   description = "Address space of all VPN clients. Must not overlap the VPC or your home network."
   type        = string
@@ -87,12 +75,6 @@ variable "vpn_ranges" {
   }
 }
 
-variable "enable_bootstrap_ssh" {
-  description = "Allow SSH to gw01 from the admin IP. Set false once the VPN works."
-  type        = bool
-  default     = true
-}
-
 variable "ssh_public_key_path" {
   description = "Path to the public key imported as the bootstrap key pair"
   type        = string
@@ -109,4 +91,112 @@ variable "ami_name_pattern" {
   description = "Image name pattern; change this and ami_owner_id to switch distribution"
   type        = string
   default     = "RHEL-10.0.0_HVM-20260922-x86_64-0-Hourly2-GP3"
+}
+
+variable "enable_vpn_endpoint" {
+  description = "Open TCP 443 (wstunnel, carrying WireGuard) on gw01 to vpn_client_cidr. Set true in terraform.tfvars."
+  type        = bool
+  default     = false
+}
+
+variable "vpn_client_cidr" {
+  description = "Where VPN clients may connect from. WireGuard ignores any packet not signed by a known peer key, so the port is safe to expose; set a narrower range only if every client has a fixed address."
+  type        = string
+  default     = "0.0.0.0/0"
+}
+
+variable "hosts" {
+  description = "Host inventory: every server and workstation in the company"
+  type = map(object({
+    role              = string
+    subnet            = string
+    private_ip        = string
+    instance_type     = string
+    team              = string
+    allocate_eip      = optional(bool, false)
+    source_dest_check = optional(bool, true)
+    control_node_role = optional(bool, false)
+    extra_volumes = optional(map(object({
+      device_name = string
+      size        = number
+    })), {})
+  }))
+
+  default = {
+    gw01 = {
+      role              = "gateway"
+      subnet            = "public"
+      private_ip        = "10.0.0.10"
+      instance_type     = "t3.small"
+      team              = "platform"
+      allocate_eip      = true
+      source_dest_check = false # required: gw01 forwards VPN traffic
+    }
+    control01 = {
+      role              = "control"
+      subnet            = "infra"
+      private_ip        = "10.0.1.10"
+      instance_type     = "t3.small" # runs Ansible against the whole fleet
+      team              = "platform"
+      control_node_role = true # dynamic inventory + read secrets from SSM (iam.tf)
+    }
+    idm01 = {
+      role          = "idm"
+      subnet        = "infra"
+      private_ip    = "10.0.1.11"
+      instance_type = "c7i-flex.large" # 4 GB for FreeIPA
+      team          = "platform"
+    }
+    util01 = {
+      role          = "util"
+      subnet        = "infra"
+      private_ip    = "10.0.1.12"
+      instance_type = "t3.small"
+      team          = "platform"
+      extra_volumes = {
+        data = { device_name = "/dev/sdf", size = 20 }
+      }
+    }
+    ws-dev01 = {
+      role          = "workstation"
+      subnet        = "workstation"
+      private_ip    = "10.0.2.10"
+      instance_type = "t3.small"
+      team          = "dev"
+    }
+    ws-ops01 = {
+      role          = "workstation"
+      subnet        = "workstation"
+      private_ip    = "10.0.2.11"
+      instance_type = "t3.small"
+      team          = "ops"
+    }
+  }
+
+  validation {
+    condition     = alltrue([for h in values(var.hosts) : contains(keys(var.subnets), h.subnet)])
+    error_message = "Every host's subnet must be a key of var.subnets."
+  }
+
+  validation {
+    condition     = alltrue([for h in values(var.hosts) : contains(local.host_roles, h.role)])
+    error_message = "Every host's role must be one of the host roles in main.tf (local.roles without eice)."
+  }
+
+  validation {
+    condition = alltrue([
+      for h in values(var.hosts) : can(cidrnetmask("${h.private_ip}/32"))
+    ])
+    error_message = "Every private_ip must be a plain IPv4 address."
+  }
+
+  validation {
+    condition     = length(distinct([for h in values(var.hosts) : h.private_ip])) == length(var.hosts)
+    error_message = "Two hosts share a private_ip."
+  }
+
+  validation {
+    condition     = length([for h in values(var.hosts) : h if h.control_node_role]) <= 1
+    error_message = "Only one host may hold the control node role (it can read secrets)."
+  }
 }

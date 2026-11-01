@@ -1,5 +1,5 @@
 variable "aws_region" {
-  description = "AWS region for the lab"
+  description = "AWS region of the state bucket"
   type        = string
   default     = "us-east-1"
 }
@@ -10,50 +10,19 @@ variable "aws_profile" {
   default     = null
 }
 
-variable "company_name" {
-  description = "Company name, used as a prefix for resource names"
+variable "state_bucket_name" {
+  description = "Name of the S3 bucket holding every layer's Terraform state"
   type        = string
-  default     = "ahmed"
+  default     = "ahmed-statefile"
 }
 
-variable "availability_zone" {
-  description = "Availability zone for the lab subnets"
-  type        = string
-  default     = "us-east-1a"
-}
-
-variable "vpc_cidr" {
-  description = "CIDR block for the company VPC"
-  type        = string
-  default     = "10.0.0.0/16"
-}
-
-variable "subnets" {
-  description = "Subnets by tier: CIDR block and whether the subnet is public"
-  type = map(object({
-    cidr   = string
-    public = bool
-  }))
-  default = {
-    public      = { cidr = "10.0.0.0/24", public = true }
-    infra       = { cidr = "10.0.1.0/24", public = false }
-    workstation = { cidr = "10.0.2.0/24", public = false }
-    app         = { cidr = "10.0.3.0/24", public = false }
-  }
-}
-
-variable "enable_nat_gateway" {
-  description = "Create the NAT gateway. Set false between sessions to save cost."
-  type        = bool
-  default     = true
-}
-
-variable "admin_cidr" {
-  description = "Your public IP in CIDR form (for example 203.0.113.10/32). Only this address can reach bastion01."
-  type        = string
+variable "noncurrent_version_days" {
+  description = "Days to keep old state versions before they expire"
+  type        = number
+  default     = 90
 
   validation {
-    condition     = can(cidrhost(var.admin_cidr, 0)) && var.admin_cidr != "0.0.0.0/0"
-    error_message = "admin_cidr must be a valid CIDR block and must not be 0.0.0.0/0."
+    condition     = var.noncurrent_version_days >= 30
+    error_message = "Keep old state versions for at least 30 days so a bad apply can be rolled back."
   }
 }

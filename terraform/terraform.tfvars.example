@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars (gitignored) and adjust. lab.sh requires the file.
+
+# Open TCP 443 on gw01 for the VPN (wstunnel carrying WireGuard).
+enable_vpn_endpoint = true
+
+# aws_profile = "your-profile-name"
+
+# Set to false between sessions to stop NAT gateway charges.
+# Private hosts have no internet access while it is off.
+# enable_nat_gateway = true

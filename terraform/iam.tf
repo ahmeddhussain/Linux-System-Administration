@@ -1,6 +1,6 @@
-# Instance role for control01: discover hosts for the Ansible dynamic
-# inventory and read the project's secrets from SSM. No access keys are
-# stored on the server.
+# Instance role for the control node (control01; control_node_role in the
+# hosts variable): discover hosts for the Ansible dynamic inventory and read
+# the project's secrets from SSM. No access keys are stored on the server.
 
 data "aws_caller_identity" "current" {}
 
@@ -19,9 +19,15 @@ data "aws_iam_policy_document" "ec2_assume" {
   }
 }
 
-resource "aws_iam_role" "ansible_inventory" {
-  name               = "${var.company_name}-ansible-inventory"
+resource "aws_iam_role" "control_node" {
+  name               = "${var.company_name}-control-node"
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
+
+  # On a rename, build the new role before removing the old one so control01
+  # is never left without credentials.
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 data "aws_iam_policy_document" "describe_instances" {
@@ -35,9 +41,9 @@ data "aws_iam_policy_document" "describe_instances" {
   }
 }
 
-resource "aws_iam_role_policy" "ansible_inventory" {
+resource "aws_iam_role_policy" "describe_instances" {
   name   = "describe-instances"
-  role   = aws_iam_role.ansible_inventory.id
+  role   = aws_iam_role.control_node.id
   policy = data.aws_iam_policy_document.describe_instances.json
 }
 
@@ -66,11 +72,15 @@ data "aws_iam_policy_document" "read_secrets" {
 
 resource "aws_iam_role_policy" "read_secrets" {
   name   = "read-secrets"
-  role   = aws_iam_role.ansible_inventory.id
+  role   = aws_iam_role.control_node.id
   policy = data.aws_iam_policy_document.read_secrets.json
 }
 
-resource "aws_iam_instance_profile" "ansible_inventory" {
-  name = "${var.company_name}-ansible-inventory"
-  role = aws_iam_role.ansible_inventory.name
+resource "aws_iam_instance_profile" "control_node" {
+  name = "${var.company_name}-control-node"
+  role = aws_iam_role.control_node.name
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }

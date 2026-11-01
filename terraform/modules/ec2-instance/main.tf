@@ -38,7 +38,8 @@ resource "aws_instance" "this" {
   })
 
   # Servers are patched in place with dnf, not replaced when a newer image
-  # is published.
+  # is published (D-021). cloud-init reads user_data only on first boot, so
+  # a change to it would replace the server for no effect on a running host.
   lifecycle {
     ignore_changes = [ami, user_data]
   }

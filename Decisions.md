@@ -132,6 +132,9 @@ Every design choice: what we chose, what else we considered, and why.
 - **Why:** Native locking needs no extra table, state is recoverable through
   versioning, and a team could share it. The bootstrap config is needed
   because the bucket must exist before it can hold state.
+- **Correction (2026-11-01):** a review found versioning was never enabled
+  and there was no TLS-only policy, and terraform/bootstrap held stale
+  network code instead of the bucket. Fixed by D-044.
 
 ## D-017: Network - tiered private subnets behind a NAT gateway
 - **Chosen:** Public subnet (bastion01, NAT gateway) plus private infra,
@@ -417,3 +420,32 @@ Every design choice: what we chose, what else we considered, and why.
   public key is recorded in plain text next to it; the role refuses a vault
   key that does not match, so a wrong vault file cannot silently break every
   client.
+
+## D-044: State bucket adopted into code, versioned, TLS-only
+- **Chosen:** terraform/bootstrap rewritten to describe only the existing
+  ahmed-statefile bucket, adopted with import blocks; versioning enabled,
+  old versions expire after 90 days, TLS-only bucket policy; SSE-S3 with a
+  bucket key kept as created; its own state in the same bucket
+  (ahmed-infra/bootstrap.tfstate)
+- **Alternatives:** leave the bucket hand-managed; recreate it from code
+  (would mean migrating every state); local state for the bootstrap layer;
+  customer managed KMS key
+- **Why:** The bucket holds every layer's state and was the one piece not in
+  code, and its missing versioning meant an overwritten state could not be
+  recovered. Import blocks make adoption reviewable and repeatable without
+  touching the data. Keeping its state in the bucket avoids a laptop-only
+  file; if the bucket is ever lost, the backend block is commented out and
+  the layer is applied locally. KMS adds cost and key policy work with no
+  benefit for a single-account lab.
+
+## D-045: Terraform tests with mocked providers
+- **Chosen:** native terraform test with mock_provider: module tests for
+  security-groups (default deny, both halves of each flow, unknown roles
+  rejected) and network (NAT toggle, public addressing), and root tests for
+  the host inventory validations
+- **Alternatives:** Terratest against real AWS; plan review only; tflint or
+  checkov only
+- **Why:** Free, fast, need no credentials, and test the rules this design
+  depends on (default deny, one control node, no duplicate addresses).
+  Real-infrastructure checks stay in scripts/test-lab.sh. Static scanners
+  (tflint, trivy, checkov) are a planned addition.
