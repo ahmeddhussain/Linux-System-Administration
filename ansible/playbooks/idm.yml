@@ -220,12 +220,12 @@
 
     - name: Tell an offline SSSD to reconnect
       ansible.builtin.command: systemctl kill --signal=SIGUSR2 sssd
-      when: "'Offline' in ipa_sssd_status.stdout"
+      when: "'Online status: Online' not in ipa_sssd_status.stdout"
 
     - name: Wait until SSSD is online
       ansible.builtin.command: "sssctl domain-status {{ ipa_domain }} -o"
       register: ipa_sssd_online
-      until: "'Online' in ipa_sssd_online.stdout"
+      until: "'Online status: Online' in ipa_sssd_online.stdout"
       retries: 15
       delay: 2
       changed_when: false
