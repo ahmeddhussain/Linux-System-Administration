@@ -49,6 +49,29 @@
 - name: FreeIPA clients (all hosts except idm01 and control01)
   hosts: ipaclients:!role_control
   serial: 2
+  pre_tasks: &client_prepare
+    # A failed enrollment can leave an empty /etc/ipa/ca.crt behind. Discovery
+    # then uses it for LDAP TLS and every retry fails with "Failed to verify
+    # that ... is an IPA Server" (2026-11-01). Remove it only if it is empty
+    # and the host is not enrolled.
+    - name: Check for a host keytab (enrolled hosts have one)
+      ansible.builtin.stat:
+        path: /etc/krb5.keytab
+      register: ipa_client_keytab
+
+    - name: Check the CA file
+      ansible.builtin.stat:
+        path: /etc/ipa/ca.crt
+      register: ipa_client_ca
+
+    - name: Remove an empty CA file left by a failed enrollment
+      ansible.builtin.file:
+        path: /etc/ipa/ca.crt
+        state: absent
+      when:
+        - not ipa_client_keytab.stat.exists
+        - ipa_client_ca.stat.exists
+        - ipa_client_ca.stat.size == 0
   roles:
     - role: freeipa.ansible_freeipa.ipaclient
       state: present
@@ -60,6 +83,7 @@
 
 - name: FreeIPA client on control01 (last, alone)
   hosts: ipaclients:&role_control
+  pre_tasks: *client_prepare
   roles:
     - role: freeipa.ansible_freeipa.ipaclient
       state: present
