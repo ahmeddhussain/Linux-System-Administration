@@ -449,3 +449,81 @@ Every design choice: what we chose, what else we considered, and why.
   depends on (default deny, one control node, no duplicate addresses).
   Real-infrastructure checks stay in scripts/test-lab.sh. Static scanners
   (tflint, trivy, checkov) are a planned addition.
+
+## D-046: FreeIPA installation shape - realm, CA, single server
+- **Chosen:** realm AHMED.INTERNAL, domain ahmed.internal; integrated IPA
+  CA (self-signed root); one server (idm01), no replica
+- **Alternatives:** subdomain ipa.ahmed.internal; CA-less install or an
+  external CA; a replica on a second instance
+- **Why:** The hostnames already live in ahmed.internal, so realm and DNS
+  domain match without renaming. The realm cannot be changed after install.
+  The integrated CA issues host and service certificates automatically,
+  which the web UI and LDAPS need; there is no external CA to chain to. A
+  replica needs another 4 GB instance outside the free plan; the lab is
+  rebuilt every session, so idm01 being a single point of failure is
+  accepted and a replica is kept as a later exercise. Details and rejected
+  options: docs/architecture/freeipa-options.md.
+
+## D-047: DNS - FreeIPA integrated DNS, forwarding to the VPC resolver
+- **Chosen:** ipa-server-dns serves ahmed.internal and forwards everything
+  else to the VPC resolver (10.0.0.2); clients list idm01 first and
+  10.0.0.2 second, switched by Ansible after idm01 is installed
+- **Alternatives:** Route 53 private hosted zone with IPA installed without
+  DNS; /etc/hosts with explicit --server enrollment; resolver set through
+  the VPC DHCP options
+- **Why:** Enrollment creates host and service records automatically, and
+  SSHFP records let SSH verify host keys, closing the trust-on-first-use gap
+  in D-036. Route 53 would duplicate the host list and need service records
+  by hand. DHCP options would point hosts at idm01 at boot, before it
+  exists. Tradeoff: name resolution depends on idm01; the second resolver
+  only helps when idm01 does not answer, not when it answers wrongly.
+
+## D-048: FreeIPA lifecycle - rebuilt from code every session
+- **Chosen:** idm01 is destroyed with the lab and rebuilt by Ansible;
+  users, groups, host groups, HBAC and sudo rules are data in Git;
+  logins by SSH key; nothing is changed by hand in IPA
+- **Alternatives:** keep idm01 alive across sessions; rebuild then restore
+  ipa-backup from S3
+- **Why:** Same rule as the rest of the lab (D-032): what is not code is
+  lost, which keeps the identity layer reviewable and adding a team a data
+  change. Keeping idm01 alive would let it drift from the code; restoring
+  backups daily would tie every session to an exact IPA version. Tradeoffs:
+  an estimated 15 to 20 minutes more per lab.sh up, and a new CA root every
+  session. Backup and restore is kept as a planned drill.
+
+## D-049: FreeIPA secrets in Ansible Vault
+- **Chosen:** admin and Directory Manager passwords (and any initial user
+  passwords) generated once and stored in group_vars/role_idm/vault.yml,
+  decrypted with the SSM-held Vault password (D-043); tasks use no_log
+- **Alternatives:** prompt at install time; separate SSM parameters read
+  by idm01 through its own IAM role
+- **Why:** Reuses a mechanism already proven in this lab and keeps
+  lab.sh up unattended. A second mechanism would give idm01 an IAM role for
+  no gain. Tradeoff as in D-043: root on control01 can read them.
+
+## D-050: FreeIPA automation - freeipa.ansible_freeipa collection
+- **Chosen:** the collection maintained by the FreeIPA project, pinned in
+  ansible/requirements.yml: ipaserver and ipaclient roles, and the ipauser,
+  ipagroup, ipahostgroup, ipahbacrule and ipasudorule modules; the
+  underlying install commands documented in a runbook
+- **Alternatives:** ipa-server-install and ipa-client-install through
+  command tasks, ipa CLI scripts for users
+- **Why:** Idempotent and data-driven, and the same modules install the
+  server and manage identity data. Command tasks would need hand-written
+  guards and turn user management into scripts. The runbook keeps the
+  course-level commands visible.
+
+## D-051: FreeIPA network access and enrollment scope
+- **Chosen:** idm01 accepts DNS 53 (TCP/UDP), Kerberos 88 and 464
+  (TCP/UDP), LDAP 389, LDAPS 636, HTTP 80 and HTTPS 443 from the VPC CIDR;
+  every other host role may send those ports to idm01's address only; the
+  web UI (443) is also reachable from the VPN admin range; all six hosts
+  enroll, with HBAC limiting gw01 to the admin group; the local ansible
+  account stays everywhere (D-027)
+- **Alternatives:** role-to-role flows per port (about 72 rules, near the
+  60-rule default limit per group); enrolling everything except gw01
+- **Why:** Every host in the VPC is an IPA client by design, so the VPC
+  CIDR is the honest boundary, and egress is still pinned to idm01's single
+  address. Enrolling gw01 makes admin logins on the edge host named and
+  audited, at the cost of a host keytab that only identifies gw01. The
+  local automation account means Ansible never depends on IPA being up.

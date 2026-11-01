@@ -5,6 +5,21 @@ locals {
 
   vpn_admin_cidr = var.vpn_ranges["admin"]
 
+  # FreeIPA on idm01 (D-051). Every enrolled host talks to it on these ports.
+  idm_ip = one([for h in values(var.hosts) : h.private_ip if h.role == "idm"])
+  ipa_ports = {
+    dns_tcp      = { protocol = "tcp", port = 53, description = "DNS" }
+    dns_udp      = { protocol = "udp", port = 53, description = "DNS" }
+    kerberos_tcp = { protocol = "tcp", port = 88, description = "Kerberos" }
+    kerberos_udp = { protocol = "udp", port = 88, description = "Kerberos" }
+    kpasswd_tcp  = { protocol = "tcp", port = 464, description = "Kerberos password change" }
+    kpasswd_udp  = { protocol = "udp", port = 464, description = "Kerberos password change" }
+    ldap         = { protocol = "tcp", port = 389, description = "LDAP" }
+    ldaps        = { protocol = "tcp", port = 636, description = "LDAPS" }
+    http         = { protocol = "tcp", port = 80, description = "IPA CA revocation (OCSP/CRL)" }
+    https        = { protocol = "tcp", port = 443, description = "IPA enrollment, API and web UI" }
+  }
+
   # Approved connections between roles. Anything not listed here is denied.
   # To open a new connection: add an entry, run plan, review, apply, and
   # record the change as a ticket.
@@ -97,6 +112,26 @@ locals {
         description = "SSH from VPN range: ${team}"
       }
     },
+    # FreeIPA: every host in the VPC is a client; the web UI also from the
+    # VPN admin range (gw01 already forwards 443 through its HTTPS egress).
+    {
+      for k, p in local.ipa_ports : "idm_${k}_from_vpc" => {
+        role        = "idm"
+        cidr        = module.network.vpc_cidr
+        protocol    = p.protocol
+        port        = p.port
+        description = "FreeIPA ${p.description} from the VPC"
+      }
+    },
+    {
+      idm_https_from_vpn_admin = {
+        role        = "idm"
+        cidr        = local.vpn_admin_cidr
+        protocol    = "tcp"
+        port        = 443
+        description = "FreeIPA web UI from VPN admin range"
+      }
+    },
     # Troubleshooting inside the VPC.
     {
       for r in local.host_roles : "${r}_icmp_in" => {
@@ -130,6 +165,19 @@ locals {
         description = "ICMP to inside the VPC"
       }
     },
+    # FreeIPA client traffic, to idm01's address only. HTTPS is already
+    # allowed everywhere above, so it is not repeated here.
+    merge([
+      for r in setsubtract(local.host_roles, ["idm"]) : {
+        for k, p in local.ipa_ports : "${r}_to_idm_${k}" => {
+          role        = r
+          cidr        = "${local.idm_ip}/32"
+          protocol    = p.protocol
+          port        = p.port
+          description = "FreeIPA ${p.description} to idm01"
+        } if k != "https"
+      }
+    ]...),
     {
       gateway_forward_ssh_infra = {
         role        = "gateway"
