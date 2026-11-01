@@ -36,6 +36,41 @@ main() {
     fi
   }
 
+  # IPA test users: private keys from the vault, in memory only, removed on
+  # exit. as_user <user> <ip> <command> logs in with that user's key.
+  keydir="$(mktemp -d /dev/shm/test-keys.XXXXXX)"
+  trap 'rm -rf "$keydir"' EXIT
+  ansible-vault view ../ansible/tests/test-user-keys.vault.yml 2> /dev/null \
+    | python3 -c 'import os, sys, yaml
+for u, k in yaml.safe_load(sys.stdin)["test_user_private_keys"].items():
+    p = os.path.join(sys.argv[1], u)
+    with open(os.open(p, os.O_WRONLY | os.O_CREAT, 0o600), "w") as f:
+        f.write(k)' "$keydir"
+  as_user() {
+    ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      -o IdentitiesOnly=yes -o ConnectTimeout=10 -i "$keydir/$1" "$1@$2" "$3" > /dev/null 2>&1
+  }
+  # login <user> <host-ip> <allowed|denied>
+  login() {
+    local got=denied
+    as_user "$1" "$2" true && got=allowed
+    if [ "$got" = "$3" ]; then
+      echo "PASS  $1 login on $2 is $3"; pass=$((pass + 1))
+    else
+      echo "FAIL  $1 login on $2 expected $3, got $got"; fail=$((fail + 1))
+    fi
+  }
+  # sudo_as <user> <host-ip> <command> <allowed|denied>
+  sudo_as() {
+    local got=denied
+    as_user "$1" "$2" "sudo -n $3" && got=allowed
+    if [ "$got" = "$4" ]; then
+      echo "PASS  $1 sudo '$3' on $2 is $4"; pass=$((pass + 1))
+    else
+      echo "FAIL  $1 sudo '$3' on $2 expected $4, got $got"; fail=$((fail + 1))
+    fi
+  }
+
   echo "== Inventory and access"
   check "dynamic inventory finds 6 hosts"          "ansible all --list-hosts | grep -q 'hosts (6)'"
   check "all hosts answer as the ansible account"  "ansible all -m ping"
@@ -92,6 +127,30 @@ main() {
   check "no default allow_all login rule"          "ansible idm01 -b -m shell -a 'export KRB5CCNAME=\$(mktemp -u); kinit -k && ! ipa hbacrule-show allow_all; rc=\$?; kdestroy; exit \$rc'"
   reach ws-dev01  10.0.1.11 88  open
   reach ws-dev01  10.0.1.12 389 blocked
+
+  echo "== Logins and sudo per team (HBAC and sudo rules from identity.yml)"
+  # Hosts: gw01 10.0.0.10, control01 10.0.1.10, idm01 10.0.1.11,
+  # util01 10.0.1.12, ws-dev01 10.0.2.10, ws-ops01 10.0.2.11
+  login   ahmed.admin 10.0.1.11 allowed
+  sudo_as ahmed.admin 10.0.2.10 id allowed
+  login   ahmed       10.0.2.10 allowed
+  sudo_as ahmed       10.0.2.10 id denied
+  login   ahmed       10.0.2.11 denied
+  login   sara        10.0.2.11 allowed
+  sudo_as sara        10.0.2.11 id allowed
+  login   sara        10.0.1.12 allowed
+  login   sara        10.0.2.10 denied
+  login   sara        10.0.1.10 denied
+  login   sara        10.0.0.10 denied
+  login   omar        10.0.2.11 allowed
+  sudo_as omar        10.0.2.11 id denied
+  login   laila       10.0.1.12 allowed
+  sudo_as laila       10.0.1.12 "journalctl -n 1" allowed
+  sudo_as laila       10.0.1.12 id denied
+  login   laila       10.0.2.10 denied
+  login   contractor1 10.0.2.10 allowed
+  sudo_as contractor1 10.0.2.10 id denied
+  login   contractor1 10.0.1.12 denied
 
   if [ "$full" = "yes" ]; then
     echo "== Idempotency (slow): a full site.yml run must change nothing"

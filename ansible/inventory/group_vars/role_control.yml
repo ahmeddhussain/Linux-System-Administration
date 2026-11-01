@@ -1,0 +1,7 @@
+---
+# control01 manages itself over a local connection, and modules would then
+# run in ~/ansible-venv, which cannot see system Python packages such as
+# ipapython (installed by ipa-client). Run modules with the system Python,
+# like on every other host. The venv stays the controller's own runtime
+# (ansible-core, boto3, the dynamic inventory).
+ansible_python_interpreter: /usr/bin/python3

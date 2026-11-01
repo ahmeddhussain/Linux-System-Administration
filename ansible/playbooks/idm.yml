@@ -110,3 +110,91 @@
     - role: freeipa.ansible_freeipa.ipaclient
       state: present
   post_tasks: *client_checks
+
+# Identity data (D-048): everything comes from
+# inventory/group_vars/role_idm/identity.yml. Runs after enrollment because
+# host groups can only contain enrolled hosts.
+- name: FreeIPA identity data (groups, users, host groups, HBAC, sudo)
+  hosts: ipaservers
+  gather_facts: false
+  tasks:
+    - name: Team groups
+      freeipa.ansible_freeipa.ipagroup:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        name: "{{ item.name }}"
+        description: "{{ item.description }}"
+        state: present
+      loop: "{{ ipa_groups }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Users (SSH keys, expiry)
+      freeipa.ansible_freeipa.ipauser:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        name: "{{ item.name }}"
+        first: "{{ item.first }}"
+        last: "{{ item.last }}"
+        sshpubkey: "{{ item.sshpubkey }}"
+        principalexpiration: "{{ item.principalexpiration | default(omit) }}"
+        update_password: on_create
+        state: present
+      loop: "{{ ipa_users }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Group membership (from each user's groups)
+      freeipa.ansible_freeipa.ipagroup:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        name: "{{ item }}"
+        user: "{{ ipa_users | selectattr('groups', 'contains', item) | map(attribute='name') | list }}"
+        action: member
+        state: present
+      loop: "{{ ipa_users | map(attribute='groups') | flatten | unique | list }}"
+
+    - name: Host groups
+      freeipa.ansible_freeipa.ipahostgroup:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        name: "{{ item.name }}"
+        host: "{{ item.hosts }}"
+        state: present
+      loop: "{{ ipa_hostgroups }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Login rules (HBAC)
+      freeipa.ansible_freeipa.ipahbacrule:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        name: "{{ item.name }}"
+        description: "{{ item.description }}"
+        group: "{{ item.group }}"
+        hostgroup: "{{ item.hostgroup | default(omit) }}"
+        hostcategory: "{{ item.hostcategory | default(omit) }}"
+        servicecategory: all
+        state: present
+      loop: "{{ ipa_hbacrules }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Commands used by restricted sudo rules
+      freeipa.ansible_freeipa.ipasudocmd:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        name: "{{ ipa_sudocmds }}"
+        state: present
+
+    - name: Sudo rules (no password prompt; logins are key-only)
+      freeipa.ansible_freeipa.ipasudorule:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        name: "{{ item.name }}"
+        description: "{{ item.description }}"
+        group: "{{ item.group }}"
+        hostgroup: "{{ item.hostgroup | default(omit) }}"
+        hostcategory: "{{ item.hostcategory | default(omit) }}"
+        cmdcategory: "{{ item.cmdcategory | default(omit) }}"
+        runasusercategory: "{{ item.runasusercategory | default(omit) }}"
+        runasgroupcategory: "{{ item.runasgroupcategory | default(omit) }}"
+        allow_sudocmd: "{{ item.allow_sudocmd | default(omit) }}"
+        sudooption: ["!authenticate"]
+        state: present
+      loop: "{{ ipa_sudorules }}"
+      loop_control:
+        label: "{{ item.name }}"

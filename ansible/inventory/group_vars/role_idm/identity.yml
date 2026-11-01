@@ -1,0 +1,138 @@
+---
+# Identity data for FreeIPA (D-048): the only place users, groups, host
+# groups, login rules (HBAC) and sudo rules are defined. Never change them by
+# hand in IPA; change this file and rerun playbooks/idm.yml.
+# Source of the policy: docs/architecture/org-structure.md.
+#
+# Keys: every user has a test key (private half encrypted in
+# ansible/tests/test-user-keys.vault.yml, used by scripts/test-lab.sh).
+# Ahmed's two accounts also accept the laptop key.
+
+ipa_users:
+  - name: ahmed.admin
+    first: Ahmed
+    last: Admin
+    groups: [admins]          # IPA administrators: everything, everywhere
+    sshpubkey:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIES/ppUMBvBGMGdDvYCK0dWnF76bwI8WYckpYOW1VW+6 test-key ahmed.admin@ahmed.internal
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDUA62Wwuhxql2nhZxMsRvP03QQK+1Tg806lBZBgVLSPsQogmvgeWBeCZw6GKa5C1WnlRqcEEr38gK/EKdtVC2oOjwuzqyrVNeIXR0oOdCiUvoAj7rLeNlsVNp0mRIVSpj3aR6YOr+yUgiJ+05Eb//C9yN8CJFc8/Kdv55k6coyhMrUc3y4XhwKk0FeDJ9u7CQ7j2i8WgY8DDeDgbxakB0RD/52CMUZBI8nzNLsLs/ONFkjQUcoL2AgCrLtF58geM+Q5F/eZ7KDxGSLfWRT0fBs7fJSwa6vGdZYdN4rXhhao0Sbg0KwaIW7LkKsv7fiBTpXU9RPBjR/iArVCUpMVUEn ahmed-laptop
+  - name: ahmed
+    first: Ahmed
+    last: Developer
+    groups: [dev]
+    sshpubkey:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICZEbt5kodSFeqeJFtdw8m29xqSZjNdSk4Hd/T2tjxNk test-key ahmed@ahmed.internal
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDUA62Wwuhxql2nhZxMsRvP03QQK+1Tg806lBZBgVLSPsQogmvgeWBeCZw6GKa5C1WnlRqcEEr38gK/EKdtVC2oOjwuzqyrVNeIXR0oOdCiUvoAj7rLeNlsVNp0mRIVSpj3aR6YOr+yUgiJ+05Eb//C9yN8CJFc8/Kdv55k6coyhMrUc3y4XhwKk0FeDJ9u7CQ7j2i8WgY8DDeDgbxakB0RD/52CMUZBI8nzNLsLs/ONFkjQUcoL2AgCrLtF58geM+Q5F/eZ7KDxGSLfWRT0fBs7fJSwa6vGdZYdN4rXhhao0Sbg0KwaIW7LkKsv7fiBTpXU9RPBjR/iArVCUpMVUEn ahmed-laptop
+  - name: sara
+    first: Sara
+    last: Ops
+    groups: [ops]
+    sshpubkey:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILyOBTX0qzrTXfvXmiUmE6ziJPFaUdHNmRA+X98LDaZ8 test-key sara@ahmed.internal
+  - name: omar
+    first: Omar
+    last: DBA
+    groups: [dba]
+    sshpubkey:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOUzVZ30JJaGoDI8cMhJvHmraNOvFzQG8LpwmTb1ELn1 test-key omar@ahmed.internal
+  - name: laila
+    first: Laila
+    last: Security
+    groups: [security]
+    sshpubkey:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ5jPTleclk3vd0PwXH4rnuMg+Ngej2vy5tO5eZpnd02 test-key laila@ahmed.internal
+  - name: contractor1
+    first: Example
+    last: Contractor
+    groups: [contractors]
+    principalexpiration: "2026-12-31Z"   # contractor accounts expire
+    sshpubkey:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEEP46F+yEbJOtPZhRYkurL7pmo4nbc9yf26fGvgiBS1 test-key contractor1@ahmed.internal
+
+# Team groups. "admins" is built into IPA and is not listed here.
+ipa_groups:
+  - name: dev
+    description: Development team
+  - name: ops
+    description: Operations team
+  - name: dba
+    description: Database administrators
+  - name: security
+    description: Security team (read-only log access)
+  - name: contractors
+    description: Temporary accounts, ws-dev01 only, no sudo
+
+# Host groups: full host names.
+ipa_hostgroups:
+  - name: dev-workstations
+    hosts: [ws-dev01.ahmed.internal]
+  - name: ops-workstations
+    hosts: [ws-ops01.ahmed.internal]
+  # Servers that teams may be granted. control01 (D-010) and gw01 (D-051)
+  # are admin-only and reached through admins-everywhere, never this group.
+  - name: servers
+    hosts: [idm01.ahmed.internal, util01.ahmed.internal]
+  - name: log-servers
+    hosts: [util01.ahmed.internal]
+  - name: app-servers           # app01 joins in Phase 10
+    hosts: []
+
+# Login rules (HBAC). IPA also checks sudo against HBAC, so every rule covers
+# all services. There is no allow_all rule (ipaserver_no_hbac_allow).
+ipa_hbacrules:
+  - name: admins-everywhere
+    description: IPA admins may log into every host
+    group: [admins]
+    hostcategory: all
+  - name: dev-workstations
+    description: "dev: ws-dev01 (app01 deploy access comes with app01)"
+    group: [dev]
+    hostgroup: [dev-workstations]
+  - name: contractors-workstations
+    description: "contractors: ws-dev01 only"
+    group: [contractors]
+    hostgroup: [dev-workstations]
+  - name: ops-workstations-and-servers
+    description: "ops: ws-ops01 and all servers (network path to servers deferred)"
+    group: [ops]
+    hostgroup: [ops-workstations, servers]
+  - name: dba-workstations
+    description: "dba: ws-ops01 (app01 database access comes with app01)"
+    group: [dba]
+    hostgroup: [ops-workstations]
+  - name: security-log-servers
+    description: "security: read-only log access on util01"
+    group: [security]
+    hostgroup: [log-servers]
+
+# Commands referenced by restricted sudo rules.
+ipa_sudocmds:
+  - /usr/bin/journalctl
+  - /usr/sbin/ausearch
+  - /usr/sbin/aureport
+  - /usr/bin/last
+
+# Sudo rules. Logins are key-only, so IPA users have no password to type:
+# !authenticate. sudo still logs every command to the journal.
+# Not yet: dev "restart the app service only" and dba "sudo -u postgres"
+# (both need app01, Phase 10). contractors: no sudo.
+ipa_sudorules:
+  - name: admins-all
+    description: IPA admins may run anything as anyone, everywhere
+    group: [admins]
+    hostcategory: all
+    cmdcategory: all
+    runasusercategory: all
+    runasgroupcategory: all
+  - name: ops-all
+    description: "ops: full sudo on their hosts, logged"
+    group: [ops]
+    hostgroup: [ops-workstations, servers]
+    cmdcategory: all
+    runasusercategory: all
+    runasgroupcategory: all
+  - name: security-audit-tools
+    description: "security: audit tools only, on util01"
+    group: [security]
+    hostgroup: [log-servers]
+    allow_sudocmd: [/usr/bin/journalctl, /usr/sbin/ausearch, /usr/sbin/aureport, /usr/bin/last]
