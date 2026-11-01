@@ -167,6 +167,12 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   check "wstunnel listens on TCP 443"              "ansible gw01 -b -m shell -a 'ss -Htln sport = :443 | grep -q .'"
   check "WireGuard UDP port is closed to the outside" "ansible gw01 -b -m shell -a '! firewall-cmd --zone=public --list-ports | grep -qw 51820/udp'"
 
+  echo "== util01 data volume and backups (D-056)"
+  check "util01 data areas are mounted from vg_data" "ansible util01 -m shell -a 'findmnt -n -o SOURCE /export/home | grep -q vg_data-lv_home && findmnt -n -o SOURCE /srv/logs | grep -q vg_data-lv_logs'"
+  check "util01 backup timer is active"            "ansible util01 -b -m shell -a 'systemctl is-active --quiet ahmed-backup.timer'"
+  check "util01 can back up to S3"                 "ansible util01 -b -m command -a '/usr/local/sbin/ahmed-backup backup'"
+  check "the latest backup is readable"            "ansible util01 -b -m command -a '/usr/local/sbin/ahmed-backup verify'"
+
   echo "== Time and identity (FreeIPA on idm01)"
   check "every host syncs time from AWS (Kerberos needs it)" "ansible all -b -m shell -a 'chronyc -n sources | grep -q \"^\\^\\* 169.254.169.123\"'"
   check "every IPA service is running on idm01"    "ansible idm01 -b -m shell -a 'ipactl status'"

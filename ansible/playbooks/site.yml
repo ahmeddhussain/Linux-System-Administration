@@ -10,6 +10,11 @@
 - name: Central identity (FreeIPA server, then clients)
   ansible.builtin.import_playbook: idm.yml
 
+- name: Utility server data volume and backups (D-056)
+  hosts: role_util
+  roles:
+    - util_storage
+
 - name: VPN gateway
   hosts: role_gateway
   roles:

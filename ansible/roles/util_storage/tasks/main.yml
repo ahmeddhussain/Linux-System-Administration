@@ -1,0 +1,157 @@
+---
+# util01 data volume (LVM) and its backups to S3 (D-056).
+
+- name: Install LVM and the AWS CLI
+  ansible.builtin.dnf:
+    name: [lvm2, awscli2]
+    state: present
+
+# The data volume is the only NVMe disk without partitions. Refuse to guess
+# if there is not exactly one, rather than format the wrong disk.
+- name: Find the data disk
+  ansible.builtin.set_fact:
+    util_storage_disks: >-
+      {{ ansible_devices | dict2items
+         | selectattr('key', 'match', '^nvme')
+         | selectattr('value.partitions', 'equalto', {})
+         | map(attribute='key') | list }}
+
+- name: Check whether the volume group already exists
+  ansible.builtin.command: "vgs {{ util_storage_vg }}"
+  register: util_storage_vgs
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Refuse to continue unless exactly one data disk is found
+  ansible.builtin.assert:
+    that:
+      - util_storage_vgs.rc == 0 or util_storage_disks | length == 1
+    fail_msg: "Expected one unpartitioned NVMe data disk, found: {{ util_storage_disks }}"
+    quiet: true
+
+- name: Create the volume group on the data disk (new volume only)
+  ansible.builtin.command: "vgcreate {{ util_storage_vg }} /dev/{{ util_storage_disks[0] }}"
+  when: util_storage_vgs.rc != 0
+  register: util_storage_vg_created
+
+- name: Create one logical volume per data area
+  ansible.builtin.command: >-
+    lvcreate --yes --name lv_{{ item.key }} --size {{ item.value.size }} {{ util_storage_vg }}
+  args:
+    creates: "/dev/{{ util_storage_vg }}/lv_{{ item.key }}"
+  loop: "{{ util_storage_volumes | dict2items }}"
+  loop_control:
+    label: "lv_{{ item.key }} ({{ item.value.size }})"
+
+- name: Check for a filesystem on each logical volume
+  ansible.builtin.command: "blkid -o value -s TYPE /dev/{{ util_storage_vg }}/lv_{{ item.key }}"
+  register: util_storage_fs
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  loop: "{{ util_storage_volumes | dict2items }}"
+  loop_control:
+    label: "lv_{{ item.key }}"
+
+- name: Create an XFS filesystem where there is none
+  ansible.builtin.command: "mkfs.xfs /dev/{{ util_storage_vg }}/lv_{{ item.item.key }}"
+  when: item.stdout == ''
+  loop: "{{ util_storage_fs.results }}"
+  loop_control:
+    label: "lv_{{ item.item.key }}"
+
+- name: Mount each data area permanently
+  ansible.posix.mount:
+    path: "{{ item.value.mount }}"
+    src: "/dev/{{ util_storage_vg }}/lv_{{ item.key }}"
+    fstype: xfs
+    opts: defaults
+    state: mounted
+  loop: "{{ util_storage_volumes | dict2items }}"
+  loop_control:
+    label: "{{ item.value.mount }}"
+
+- name: Record the SELinux type of each data area
+  ansible.builtin.shell: >-
+    semanage fcontext -l | grep -qF '{{ item.value.mount }}(/.*)?' ||
+    { semanage fcontext -a -t {{ item.value.setype }} '{{ item.value.mount }}(/.*)?' && echo added; }
+  register: util_storage_fcontext
+  changed_when: "'added' in util_storage_fcontext.stdout"
+  loop: "{{ util_storage_volumes | dict2items }}"
+  loop_control:
+    label: "{{ item.value.mount }} -> {{ item.value.setype }}"
+
+- name: Apply the SELinux types
+  ansible.builtin.command: "restorecon -Rv {{ item.value.mount }}"
+  register: util_storage_restorecon
+  changed_when: util_storage_restorecon.stdout | length > 0
+  loop: "{{ util_storage_volumes | dict2items }}"
+  loop_control:
+    label: "{{ item.value.mount }}"
+
+- name: Install the backup script
+  ansible.builtin.template:
+    src: ahmed-backup.sh.j2
+    dest: /usr/local/sbin/ahmed-backup
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install the backup service and its daily timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - name: ahmed-backup.service
+      content: |
+        # Managed by Ansible (role: util_storage)
+        [Unit]
+        Description=Back up util01 data to S3 (D-056)
+        After=network-online.target
+        Wants=network-online.target
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/ahmed-backup backup
+    - name: ahmed-backup.timer
+      content: |
+        # Managed by Ansible (role: util_storage)
+        [Unit]
+        Description=Daily backup of util01 data to S3
+
+        [Timer]
+        OnCalendar={{ util_backup_time }}
+        Persistent=true
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Reload systemd
+
+- name: Apply systemd changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable the backup timer
+  ansible.builtin.systemd_service:
+    name: ahmed-backup.timer
+    enabled: true
+    state: started
+
+# Restore only onto a volume group created in this run: never overwrite
+# data that is already here.
+- name: Restore the latest backup onto the new volume
+  ansible.builtin.command: /usr/local/sbin/ahmed-backup restore
+  register: util_storage_restore
+  failed_when: util_storage_restore.rc not in [0, 3]
+  changed_when: util_storage_restore.rc == 0
+  when: util_storage_vg_created is changed
+
+- name: Show the restore result
+  ansible.builtin.debug:
+    msg: "{{ util_storage_restore.stdout }}"
+  when: util_storage_vg_created is changed
