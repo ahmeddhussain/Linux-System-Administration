@@ -8,7 +8,7 @@
 #   scripts/vpn-client.sh status      show the tunnel state
 #
 # One-time setup: generate your key pair (docs/runbooks/vpn-client.md) and add
-# your public key to ansible/inventory/group_vars/role_gateway.yml.
+# your public key to ansible/inventory/group_vars/role_gateway/main.yml.
 # Environment: LAB_WG_INTERFACE (default ahmed), LAB_WG_ADDRESS (default 10.8.0.2/32)
 
 set -euo pipefail

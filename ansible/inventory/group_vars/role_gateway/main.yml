@@ -1,4 +1,9 @@
 ---
+# Server private key: kept encrypted in vault.yml next to this file (D-043),
+# so it survives rebuilds and existing client configurations stay valid.
+# View or change it on control01 with: ansible-vault edit vault.yml
+wireguard_server_private_key: "{{ vault_wireguard_server_private_key }}"
+
 # VPN peers. Public keys are not secret. Each peer gets a fixed VPN address
 # from its team's range (admin 10.8.0.0/24, dev 10.8.1.0/24, ops 10.8.2.0/24).
 # public_key is the WireGuard public key from the client's WireGuard app

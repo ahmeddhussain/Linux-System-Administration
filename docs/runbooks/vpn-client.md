@@ -10,7 +10,7 @@ WireGuard's own UDP traffic is dropped on some networks (INC-001).
        sudo sh -c 'umask 077; wg genkey > /etc/wireguard/ahmed.key'
        sudo sh -c 'wg pubkey < /etc/wireguard/ahmed.key > /etc/wireguard/ahmed.pub'
 3. Add the public key (`sudo cat /etc/wireguard/ahmed.pub`) to
-   ansible/inventory/group_vars/role_gateway.yml with your VPN address, and
+   ansible/inventory/group_vars/role_gateway/main.yml with your VPN address, and
    run site.yml.
 
 ## Daily use

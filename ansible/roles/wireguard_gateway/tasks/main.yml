@@ -3,18 +3,26 @@
   ansible.builtin.assert:
     that:
       - wireguard_peers | length > 0
-    fail_msg: "No VPN peers defined. Add them to inventory/group_vars/role_gateway.yml"
+    fail_msg: "No VPN peers defined. Add them to inventory/group_vars/role_gateway/main.yml"
     quiet: true
 
 - name: Refuse to run with missing or placeholder peer keys
   ansible.builtin.assert:
     that:
       - item.public_key is match('^[A-Za-z0-9+/]{43}=$')
-    fail_msg: "Peer {{ item.name }} has no valid public key in inventory/group_vars/role_gateway.yml"
+    fail_msg: "Peer {{ item.name }} has no valid public key in inventory/group_vars/role_gateway/main.yml"
     quiet: true
   loop: "{{ wireguard_peers }}"
   loop_control:
     label: "{{ item.name }}"
+
+- name: Refuse to run without the server private key from the vault
+  ansible.builtin.assert:
+    that:
+      - wireguard_server_private_key is match('^[A-Za-z0-9+/]{43}=$')
+    fail_msg: "wireguard_server_private_key is missing or invalid. Check inventory/group_vars/role_gateway/vault.yml"
+    quiet: true
+  no_log: true
 
 - name: Refuse to install wstunnel without a pinned checksum
   ansible.builtin.assert:
@@ -72,21 +80,20 @@
     group: root
     mode: "0700"
 
-- name: Generate the server private key (first run only)
-  ansible.builtin.shell: umask 077 && wg genkey > /etc/wireguard/server.key
-  args:
-    creates: /etc/wireguard/server.key
-
-- name: Read the server private key
-  ansible.builtin.slurp:
-    src: /etc/wireguard/server.key
-  register: wireguard_server_key
+- name: Install the server private key from the vault
+  ansible.builtin.copy:
+    dest: /etc/wireguard/server.key
+    content: "{{ wireguard_server_private_key }}\n"
+    owner: root
+    group: root
+    mode: "0600"
   no_log: true
+  notify: Restart WireGuard
 
 - name: Derive the server public key
   ansible.builtin.command: wg pubkey
   args:
-    stdin: "{{ wireguard_server_key.content | b64decode }}"
+    stdin: "{{ wireguard_server_private_key }}"
   register: wireguard_server_pubkey
   changed_when: false
   check_mode: false
