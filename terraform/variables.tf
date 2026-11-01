@@ -117,6 +117,7 @@ variable "hosts" {
     source_dest_check = optional(bool, true)
     control_node_role = optional(bool, false)
     security_group    = optional(string) # defaults to role
+    backup_writer     = optional(bool, false)
     extra_volumes = optional(map(object({
       device_name = string
       size        = number
@@ -154,6 +155,7 @@ variable "hosts" {
       private_ip    = "10.0.1.12"
       instance_type = "t3.small"
       team          = "platform"
+      backup_writer = true # writes backups to S3 (iam.tf, D-056)
       extra_volumes = {
         data = { device_name = "/dev/sdf", size = 20 }
       }
@@ -201,5 +203,10 @@ variable "hosts" {
   validation {
     condition     = length([for h in values(var.hosts) : h if h.control_node_role]) <= 1
     error_message = "Only one host may hold the control node role (it can read secrets)."
+  }
+
+  validation {
+    condition     = alltrue([for h in values(var.hosts) : !(h.control_node_role && h.backup_writer)])
+    error_message = "A host can have only one instance role: control_node_role or backup_writer."
   }
 }

@@ -15,3 +15,14 @@ variable "vault_password_version" {
   type        = number
   default     = 1
 }
+
+variable "backup_noncurrent_days" {
+  description = "Days to keep older backup versions of util01's data"
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.backup_noncurrent_days >= 7
+    error_message = "Keep older backups for at least 7 days."
+  }
+}

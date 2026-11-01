@@ -94,3 +94,39 @@ resource "aws_iam_instance_profile" "control_node" {
     create_before_destroy = true
   }
 }
+
+# Instance role for util01 (backup_writer in the hosts variable): read and
+# write its backups in the bucket from terraform/persistent (D-056). No
+# delete permission: with versioning on, an overwrite keeps the old copy,
+# so a compromised util01 cannot erase the backup history.
+locals {
+  backup_bucket_arn = "arn:aws:s3:::ahmed-infra-backups-${data.aws_caller_identity.current.account_id}"
+}
+
+resource "aws_iam_role" "backup_writer" {
+  name               = "${var.company_name}-backup-writer"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
+}
+
+data "aws_iam_policy_document" "backup_writer" {
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = [local.backup_bucket_arn]
+  }
+
+  statement {
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload"]
+    resources = ["${local.backup_bucket_arn}/util01/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "backup_writer" {
+  name   = "util01-backups"
+  role   = aws_iam_role.backup_writer.id
+  policy = data.aws_iam_policy_document.backup_writer.json
+}
+
+resource "aws_iam_instance_profile" "backup_writer" {
+  name = "${var.company_name}-backup-writer"
+  role = aws_iam_role.backup_writer.name
+}

@@ -586,3 +586,42 @@ Every design choice: what we chose, what else we considered, and why.
   group flow and keeps UDP 51820 closed. The WireGuard interface is created
   in the main namespace and moved into the test namespace, so its socket
   can reach wstunnel on localhost while the test traffic is isolated.
+
+## D-056: util01 data - rebuilt each session, backed up to S3, restored on up
+- **Chosen:** the 20 GB data volume stays in the lab layer, as LVM (volume
+  group vg_data: lv_home for NFS homes, lv_logs for central logs);
+  util01 backs homes and logs up with tar + awscli2 to a versioned S3
+  bucket in the persistent layer (old versions expire after 30 days) on a
+  daily timer and before lab.sh down; Ansible restores the latest backup
+  when the volume is new; util01 gets an instance role limited to that
+  bucket
+- **Alternatives:** a persistent EBS volume attached on every up; ephemeral
+  data; restic from EPEL; AWS Backup
+- **Why:** Keeps the lab rebuilt from code (D-032) and turns every session
+  into a real backup and restore drill with a measurable restore time
+  (roadmap item 5). A persistent volume would cost while the lab is down
+  and would still not be a backup. awscli2 and tar come from Red Hat's own
+  repositories, so no new third-party repository is added (as in D-033);
+  S3 versioning provides the history restic's snapshots would.
+
+## D-057: Web access - forced proxy, policy per workstation and per user
+- **Chosen:** workstations have no direct internet access; their security
+  groups allow only IPA/DNS on idm01, SSH from control01, and Squid on
+  util01. Squid allows HTTPS (CONNECT to port 443) only, with one listening
+  port per policy: "standard" (everything except explicit deny lists:
+  social media, video streaming; AI sites allowed) for dev and ops, and
+  "allowlist" (package repositories, GitHub, Red Hat and Python docs) for
+  dba and contractors. Each workstation's nftables lets a user reach only
+  the port of their own team's policy, matched by the user's primary group,
+  which IPA sets to the team group.
+- **Alternatives:** per workstation only; per user with Kerberos proxy
+  authentication (needs user passwords, changes D-048); host firewall only
+  for the forced proxy; DNS-level blocking
+- **Why:** The security groups make the proxy unavoidable even for root
+  on a workstation. Policy by workstation alone would give contractors on
+  ws-dev01 the dev policy and dba on ws-ops01 the ops policy; matching the
+  socket owner's group on the workstation adds the per-user layer without
+  passwords. Contractors and dba have no root on their workstations, so
+  they cannot remove it; ops have full sudo on ws-ops01 but already get the
+  more open policy. HTTPS is filtered by domain only (no TLS interception,
+  as D-008 says). Plain HTTP is not proxied (port 80 stays closed, D-034).
