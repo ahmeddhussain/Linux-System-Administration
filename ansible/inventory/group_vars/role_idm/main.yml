@@ -1,0 +1,32 @@
+---
+# FreeIPA server on idm01 (D-046, D-047, D-050). Passwords are in vault.yml
+# next to this file (D-049); view or change them on control01 with
+# ansible-vault edit vault.yml.
+ipaadmin_password: "{{ vault_ipaadmin_password }}"
+ipadm_password: "{{ vault_ipadm_password }}"
+
+ipaserver_domain: "{{ ipa_domain }}"
+ipaserver_realm: "{{ ipa_realm }}"
+# The installer adds this address to /etc/hosts, so idm01 can resolve itself
+# before its own DNS exists.
+ipaserver_ip_addresses:
+  - "{{ ansible_default_ipv4.address }}"
+
+# Integrated DNS for ahmed.internal; everything else goes to the VPC
+# resolver (VPC base address + 2). The VPC resolver does not return DNSSEC
+# data, so validation would break every lookup outside ahmed.internal.
+ipaserver_setup_dns: true
+ipaserver_forwarders:
+  - 10.0.0.2
+ipaserver_no_dnssec_validation: true
+# One reverse zone per subnet (terraform variables.tf "subnets"), so PTR
+# records match the host records IPA creates.
+ipaserver_reverse_zones:
+  - 0.0.10.in-addr.arpa.
+  - 1.0.10.in-addr.arpa.
+  - 2.0.10.in-addr.arpa.
+  - 3.0.10.in-addr.arpa.
+
+# No default "allow_all" login rule: users log in only where an HBAC rule
+# allows it (org-structure). Local accounts (ansible, ec2-user) are unaffected.
+ipaserver_no_hbac_allow: true

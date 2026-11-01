@@ -81,6 +81,18 @@ main() {
   check "wstunnel listens on TCP 443"              "ansible gw01 -b -m shell -a 'ss -Htln sport = :443 | grep -q .'"
   check "WireGuard UDP port is closed to the outside" "ansible gw01 -b -m shell -a '! firewall-cmd --zone=public --list-ports | grep -qw 51820/udp'"
 
+  echo "== Time and identity (FreeIPA on idm01)"
+  check "every host syncs time from AWS (Kerberos needs it)" "ansible all -b -m shell -a 'chronyc -n sources | grep -q \"^\\^\\* 169.254.169.123\"'"
+  check "every IPA service is running on idm01"    "ansible idm01 -b -m shell -a 'ipactl status'"
+  check "IPA DNS resolves hosts (gw01 from ws-dev01)" "ansible ws-dev01 -m shell -a 'test \"\$(dig +short gw01.ahmed.internal)\" = 10.0.0.10'"
+  check "names outside ahmed.internal still resolve" "ansible ipaclients -m shell -a 'getent hosts cdn.redhat.com'"
+  check "every client is enrolled (host keytab)"   "ansible ipaclients -b -m shell -a 'klist -k /etc/krb5.keytab | grep -q host/'"
+  check "SSSD resolves IPA accounts on every client" "ansible ipaclients -m shell -a 'id admin'"
+  check "SSHFP records published (ws-dev01)"       "ansible ws-dev01 -m shell -a 'dig +short SSHFP ws-dev01.ahmed.internal | grep -q .'"
+  check "no default allow_all login rule"          "ansible idm01 -b -m shell -a 'export KRB5CCNAME=\$(mktemp -u); kinit -k && ! ipa hbacrule-show allow_all; rc=\$?; kdestroy; exit \$rc'"
+  reach ws-dev01  10.0.1.11 88  open
+  reach ws-dev01  10.0.1.12 389 blocked
+
   if [ "$full" = "yes" ]; then
     echo "== Idempotency (slow): a full site.yml run must change nothing"
     check "site.yml reports changed=0 on every host" "! ansible-playbook playbooks/site.yml | grep -qE 'changed=[1-9]'"

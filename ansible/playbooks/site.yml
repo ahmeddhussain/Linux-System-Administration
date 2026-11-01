@@ -7,6 +7,9 @@
   roles:
     - base
 
+- name: Central identity (FreeIPA server, then clients)
+  ansible.builtin.import_playbook: idm.yml
+
 - name: VPN gateway
   hosts: role_gateway
   roles:

@@ -1,0 +1,20 @@
+---
+# FreeIPA clients: every host except idm01 (D-051).
+ipaclient_domain: "{{ ipa_domain }}"
+ipaclient_realm: "{{ ipa_realm }}"
+
+# A one-time password is generated on idm01 for each host, so the admin
+# password is only used there and never sent to the client.
+ipaclient_use_otp: true
+ipaadmin_password: "{{ hostvars[groups['ipaservers'][0]].vault_ipaadmin_password }}"
+
+# Point the resolver at idm01 before enrolling (D-047). The VPC resolver is
+# second: it is used only if idm01 does not answer.
+ipaclient_configure_dns_resolver: true
+ipaclient_dns_servers:
+  - "{{ hostvars[groups['ipaservers'][0]].ansible_host }}"
+  - 10.0.0.2
+
+# Publish SSH host keys as SSHFP records and let ssh look them up (D-036).
+ipasssd_enable_dns_updates: true
+ipaclient_ssh_trust_dns: true

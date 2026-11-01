@@ -1,7 +1,13 @@
 ---
+# Pinned so every rebuild gets the same modules (D-030). Bump on purpose,
+# in its own commit, after reading the changelog.
 collections:
+  # authorized_key, firewalld, sysctl, SELinux modules.
   - name: ansible.posix
+    version: "2.2.2"
+  # Dynamic inventory (D-029).
   - name: amazon.aws
-
-## This collection provides the authorized_key, firewalld, sysctl, and SELinux modules 
-## will be used throughout. Pin the version after the first install.
+    version: "12.0.0"
+  # FreeIPA server, clients, users, groups, HBAC and sudo rules (D-050).
+  - name: freeipa.ansible_freeipa
+    version: "1.17.0"

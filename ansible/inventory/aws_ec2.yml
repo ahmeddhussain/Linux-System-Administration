@@ -34,3 +34,6 @@ keyed_groups:
 
 groups:
   infra: "ec2_tags['Role'] in ['control', 'idm', 'util']"
+  # Group names expected by the freeipa.ansible_freeipa roles (D-050).
+  ipaservers: "ec2_tags['Role'] == 'idm'"
+  ipaclients: "ec2_tags['Role'] != 'idm'"

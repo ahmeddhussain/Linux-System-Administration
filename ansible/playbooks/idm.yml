@@ -1,0 +1,58 @@
+---
+# FreeIPA (D-046 to D-051): server on idm01, then every other host enrolls.
+# control01 enrolls last, alone, because it runs this playbook.
+
+- name: FreeIPA server
+  hosts: ipaservers
+  roles:
+    - freeipa.ansible_freeipa.ipaserver
+  post_tasks:
+    - name: Confirm every IPA service is running
+      ansible.builtin.command: ipactl status
+      changed_when: false
+      check_mode: false
+
+    - name: Confirm the admin account can get a Kerberos ticket and use the API
+      ansible.builtin.shell: |
+        set -o pipefail
+        printf '%s' "$IPA_PW" | kinit admin > /dev/null
+        ipa ping
+        kdestroy
+      args:
+        executable: /bin/bash
+      environment:
+        IPA_PW: "{{ ipaadmin_password }}"
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Confirm IPA DNS answers for its own domain
+      ansible.builtin.command: "dig +short {{ inventory_hostname }}.{{ ipa_domain }} @127.0.0.1"
+      register: idm_dns_self
+      changed_when: false
+      check_mode: false
+      failed_when: idm_dns_self.stdout != ansible_default_ipv4.address
+
+    - name: Confirm IPA DNS forwards other names to the VPC resolver
+      ansible.builtin.command: dig +short cdn.redhat.com @127.0.0.1
+      register: idm_dns_forward
+      changed_when: false
+      check_mode: false
+      failed_when: idm_dns_forward.stdout | length == 0
+
+- name: FreeIPA clients (all hosts except idm01 and control01)
+  hosts: ipaclients:!role_control
+  serial: 2
+  roles:
+    - freeipa.ansible_freeipa.ipaclient
+  post_tasks: &client_checks
+    - name: Confirm SSSD resolves IPA accounts
+      ansible.builtin.command: id admin
+      changed_when: false
+      check_mode: false
+
+- name: FreeIPA client on control01 (last, alone)
+  hosts: ipaclients:&role_control
+  roles:
+    - freeipa.ansible_freeipa.ipaclient
+  post_tasks: *client_checks
