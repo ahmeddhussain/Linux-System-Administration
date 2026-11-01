@@ -198,3 +198,45 @@
       loop: "{{ ipa_sudorules }}"
       loop_control:
         label: "{{ item.name }}"
+
+# SSSD downloads sudo rules on its first start and then trusts that result
+# until a periodic refresh; invalidating the cache does not fetch rules it
+# never had. Clients enrolled before the identity data existed therefore saw
+# no sudo rules at all (2026-11-01). Each client stores a checksum of the
+# identity data; when it changes, SSSD's cache is reset, which forces a full
+# download. Unchanged data means no reset (reruns stay changed=0).
+- name: Refresh SSSD caches when the identity data changes
+  hosts: ipaclients
+  serial: 3
+  tasks:
+    - name: Record the checksum of the identity data on this client
+      vars:
+        idm: "{{ hostvars[groups['ipaservers'][0]] }}"
+      ansible.builtin.copy:
+        dest: /var/lib/sss/ahmed-identity.sha256
+        content: >-
+          {{ [idm.ipa_users, idm.ipa_groups, idm.ipa_hostgroups, idm.ipa_hbacrules,
+              idm.ipa_sudocmds, idm.ipa_sudorules] | to_json | hash('sha256') }}
+        owner: root
+        group: root
+        mode: "0644"
+      register: ipa_identity_checksum
+
+    - name: Reset the SSSD cache so new rules are downloaded
+      ansible.builtin.shell: |
+        set -e
+        systemctl stop sssd
+        rm -f /var/lib/sss/db/cache_* /var/lib/sss/db/timestamps_*
+        systemctl start sssd
+      args:
+        executable: /bin/bash
+      when: ipa_identity_checksum.changed
+
+    - name: Wait until SSSD answers again
+      ansible.builtin.command: id admin
+      register: ipa_sssd_ready
+      until: ipa_sssd_ready.rc == 0
+      retries: 15
+      delay: 2
+      changed_when: false
+      when: ipa_identity_checksum.changed
