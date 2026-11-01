@@ -1,8 +1,9 @@
 # FreeIPA on idm01: options to decide before any code
 
-Status: **proposal, awaiting Ahmed's decisions** (2026-11-01). Each chosen
-option becomes a `D-0xx` entry in `Decisions.md`; this file then records
-why the others were rejected.
+Status: **decided and built** (2026-11-01). Ahmed chose every
+recommended option; they are recorded as D-046 to D-051 in `Decisions.md`.
+This file keeps the reasons the alternatives were rejected. How to operate
+it: `docs/runbooks/freeipa.md`.
 
 Goal (roadmap item 1): one account on every server. Users, team groups, host
 groups, login rules (HBAC), sudo rules and SSH keys are managed centrally,

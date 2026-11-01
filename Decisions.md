@@ -500,6 +500,10 @@ Every design choice: what we chose, what else we considered, and why.
 - **Why:** Reuses a mechanism already proven in this lab and keeps
   lab.sh up unattended. A second mechanism would give idm01 an IAM role for
   no gain. Tradeoff as in D-043: root on control01 can read them.
+- **As built (2026-11-01):** clients never receive the admin password.
+  Each host is enrolled with a one-time password that the playbook creates
+  on idm01. Private test keys for the IPA users are in
+  ansible/tests/test-user-keys.vault.yml.
 
 ## D-050: FreeIPA automation - freeipa.ansible_freeipa collection
 - **Chosen:** the collection maintained by the FreeIPA project, pinned in
@@ -512,6 +516,13 @@ Every design choice: what we chose, what else we considered, and why.
   server and manage identity data. Command tasks would need hand-written
   guards and turn user management into scripts. The runbook keeps the
   course-level commands visible.
+- **As built (2026-11-01), deviations from the role defaults, each with a
+  comment in the code:** `state: present` passed to the roles (the AWS
+  inventory defines a host variable `state`); clients enroll against
+  idm01's full name; the one-time password is created by the play through
+  idm01's inventory name instead of by the role; modules on control01 use
+  the system Python; SSSD's cache is reset on clients when the identity data
+  changes, because SSSD otherwise keeps an empty sudo rule cache.
 
 ## D-051: FreeIPA network access and enrollment scope
 - **Chosen:** idm01 accepts DNS 53 (TCP/UDP), Kerberos 88 and 464
