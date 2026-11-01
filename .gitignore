@@ -25,6 +25,7 @@ secrets.yml
 .DS_Store
 
 CLAUDE.md
+.claude/
 
 # Lock files created by running module tests locally
 terraform/modules/*/.terraform.lock.hcl
