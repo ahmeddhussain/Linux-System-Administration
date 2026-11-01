@@ -7,10 +7,9 @@ ipaclient_realm: "{{ ipa_realm }}"
 # came back empty and enrollment failed (2026-11-01).
 ipaclient_servers: "{{ groups['ipaservers'] | map('regex_replace', '$', '.' ~ ipa_domain) | list }}"
 
-# A one-time password is generated on idm01 for each host, so the admin
-# password is only used there and never sent to the client.
-ipaclient_use_otp: true
-ipaadmin_password: "{{ hostvars[groups['ipaservers'][0]].vault_ipaadmin_password }}"
+# Enrollment uses a one-time password that playbooks/idm.yml registers on
+# idm01 for each host (ipaclient_otp). The admin password is used only on
+# idm01 and is never defined for, or sent to, a client.
 
 # Point the resolver at idm01 before enrolling (D-047). The VPC resolver is
 # second: it is used only if idm01 does not answer.
