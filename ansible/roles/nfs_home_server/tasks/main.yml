@@ -6,6 +6,15 @@
     name: nfs-utils
     state: present
 
+# nfs-utils reads /etc/nfs.conf.d/*.conf, but RHEL does not create it.
+- name: Create the NFS configuration drop-in directory
+  ansible.builtin.file:
+    path: /etc/nfs.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Serve NFSv4 only (no v3, no UDP)
   ansible.builtin.copy:
     dest: /etc/nfs.conf.d/ahmed.conf
@@ -78,6 +87,13 @@
 
 - name: Apply export changes
   ansible.builtin.meta: flush_handlers
+
+- name: Confirm the running server has NFSv3 turned off
+  ansible.builtin.command: cat /proc/fs/nfsd/versions
+  register: nfs_home_versions
+  changed_when: false
+  check_mode: false
+  failed_when: "'-3' not in nfs_home_versions.stdout.split()"
 
 - name: Confirm the export is active for every workstation
   ansible.builtin.command: exportfs -s
