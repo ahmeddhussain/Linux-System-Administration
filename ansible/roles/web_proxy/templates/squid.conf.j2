@@ -1,0 +1,28 @@
+# Managed by Ansible (role: web_proxy). Do not edit by hand. (D-057)
+# HTTPS only (CONNECT to 443), filtered by domain; no caching, no TLS
+# interception. One port per policy; workstations decide who may use which.
+
+http_port {{ web_proxy_ports.standard }} name=standard
+http_port {{ web_proxy_ports.allowlist }} name=allowlist
+
+acl workstations src {{ web_proxy_clients }}
+acl SSL_ports port 443
+acl CONNECT method CONNECT
+acl policy_standard myportname standard
+acl policy_allowlist myportname allowlist
+acl deny_social dstdomain "/etc/squid/lists/deny-social.txt"
+acl deny_streaming dstdomain "/etc/squid/lists/deny-streaming.txt"
+acl allowlist dstdomain "/etc/squid/lists/allowlist.txt"
+
+http_access deny !workstations
+http_access deny !CONNECT
+http_access deny CONNECT !SSL_ports
+http_access deny policy_standard deny_social
+http_access deny policy_standard deny_streaming
+http_access allow policy_standard
+http_access allow policy_allowlist allowlist
+http_access deny all
+
+cache deny all
+access_log daemon:/var/log/squid/access.log squid
+coredump_dir /var/spool/squid

@@ -1,0 +1,88 @@
+---
+# Workstations use Squid on util01 for all web access (D-057).
+
+- name: Send dnf through the proxy
+  ansible.builtin.lineinfile:
+    path: /etc/dnf/dnf.conf
+    regexp: '^proxy\s*='
+    line: "proxy=http://{{ web_proxy_host }}:{{ web_proxy_ports.standard }}"
+    insertafter: '^\[main\]'
+
+- name: Give every login shell its team's proxy port
+  ansible.builtin.template:
+    src: ahmed-proxy.sh.j2
+    dest: /etc/profile.d/ahmed-proxy.sh
+    owner: root
+    group: root
+    mode: "0644"
+
+# Users of allow-list teams, from the IPA identity data; their UIDs come
+# from SSSD on this host. If a user cannot be resolved, stop: the rule
+# would silently not apply to them.
+- name: Work out which users belong to allow-list teams
+  vars:
+    allowlist_teams: "{{ web_proxy_team_policy | dict2items | selectattr('value', 'equalto', 'allowlist') | map(attribute='key') | list }}"
+    ipa_users: "{{ hostvars[groups['ipaservers'][0]].ipa_users }}"
+  ansible.builtin.set_fact:
+    proxy_client_allowlist_users: >-
+      {% set names = [] %}{% for u in ipa_users
+        if u.groups | intersect(allowlist_teams) | length > 0 %}{% set _ = names.append(u.name) %}{% endfor %}{{ names }}
+
+- name: Look up the UIDs of allow-list users
+  ansible.builtin.command: "getent passwd {{ item }}"
+  register: proxy_client_users
+  changed_when: false
+  check_mode: false
+  loop: "{{ proxy_client_allowlist_users }}"
+
+- name: Collect those UIDs
+  ansible.builtin.set_fact:
+    proxy_client_allowlist_uids: "{{ proxy_client_users.results | map(attribute='stdout') | map('split', ':') | map(attribute=2) | list }}"
+
+- name: Write the per-user proxy rule (validated with nft -c)
+  ansible.builtin.template:
+    src: ahmed-proxy.nft.j2
+    dest: /etc/nftables/ahmed-proxy.nft
+    owner: root
+    group: root
+    mode: "0600"
+    validate: nft -c -f %s
+  notify: Reload the per-user proxy rule
+
+- name: Install the service that loads the rule at boot
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/ahmed-proxy-policy.service
+    content: |
+      # Managed by Ansible (role: proxy_client)
+      [Unit]
+      Description=Per-user web proxy rule (D-057)
+      After=firewalld.service
+      Wants=firewalld.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/sbin/nft -f /etc/nftables/ahmed-proxy.nft
+      ExecStop=/usr/sbin/nft delete table inet ahmed_proxy
+
+      [Install]
+      WantedBy=multi-user.target
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload the per-user proxy rule
+
+- name: Apply changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the per-user proxy rule
+  ansible.builtin.systemd_service:
+    name: ahmed-proxy-policy
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Confirm the rule is loaded
+  ansible.builtin.command: nft list table inet ahmed_proxy
+  changed_when: false
+  check_mode: false

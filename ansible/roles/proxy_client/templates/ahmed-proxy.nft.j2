@@ -1,0 +1,14 @@
+#!/usr/sbin/nft -f
+# Managed by Ansible (role: proxy_client). Per-user web policy (D-057):
+# users of allow-list teams may not use the standard proxy port. A separate
+# table, so firewalld's own tables are never touched.
+table inet ahmed_proxy
+delete table inet ahmed_proxy
+table inet ahmed_proxy {
+  chain output {
+    type filter hook output priority filter; policy accept;
+{% if proxy_client_allowlist_uids | length > 0 %}
+    ip daddr {{ hostvars[web_proxy_host.split('.')[0]].ansible_host }} tcp dport {{ web_proxy_ports.standard }} meta skuid { {{ proxy_client_allowlist_uids | join(', ') }} } counter reject with tcp reset
+{% endif %}
+  }
+}

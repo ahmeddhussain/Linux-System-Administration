@@ -15,6 +15,16 @@
   roles:
     - util_storage
 
+- name: Web proxy on util01 (D-057)
+  hosts: role_util
+  roles:
+    - web_proxy
+
+- name: Workstations use the web proxy (D-057)
+  hosts: role_workstation
+  roles:
+    - proxy_client
+
 - name: VPN gateway
   hosts: role_gateway
   roles:

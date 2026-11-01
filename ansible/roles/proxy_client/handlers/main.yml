@@ -1,0 +1,6 @@
+---
+- name: Reload the per-user proxy rule
+  ansible.builtin.systemd_service:
+    name: ahmed-proxy-policy
+    state: restarted
+    daemon_reload: true

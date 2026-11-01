@@ -15,6 +15,9 @@ locals {
   }
   workstation_sgs = toset(values(local.team_workstation_sg))
 
+  # Squid ports on util01, one per web policy (D-057).
+  proxy_ports = [3128, 3129]
+
   vpn_admin_cidr = var.vpn_ranges["admin"]
 
   # FreeIPA on idm01 (D-051). Every enrolled host talks to it on these ports.
@@ -65,6 +68,19 @@ locals {
       description = "SSH control01 to util01 (Ansible)"
     }
     },
+    # Workstations reach the web only through Squid on util01 (D-057): one
+    # port per policy (3128 standard, 3129 allow-list).
+    merge([
+      for sg in local.workstation_sgs : {
+        for port in local.proxy_ports : "${sg}_to_util_proxy_${port}" => {
+          from        = sg
+          to          = "util"
+          protocol    = "tcp"
+          port        = port
+          description = "Web proxy (Squid) on util01, port ${port}"
+        }
+      }
+    ]...),
     {
       for sg in local.workstation_sgs : "control_to_${sg}" => {
         from        = "control"

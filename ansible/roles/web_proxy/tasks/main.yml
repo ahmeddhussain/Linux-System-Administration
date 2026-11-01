@@ -1,0 +1,77 @@
+---
+# Squid on util01: forced web proxy for the workstations (D-057).
+
+- name: Install Squid
+  ansible.builtin.dnf:
+    name: squid
+    state: present
+
+# 3128 is a Squid port in the SELinux policy; the allow-list port is not.
+- name: Allow Squid to listen on its ports (SELinux)
+  ansible.builtin.shell: >-
+    semanage port -l | grep -E '^squid_port_t\s+tcp' | grep -qw {{ item }} ||
+    { semanage port -a -t squid_port_t -p tcp {{ item }} && echo added; }
+  register: web_proxy_seport
+  changed_when: "'added' in web_proxy_seport.stdout"
+  loop: "{{ web_proxy_ports.values() | list }}"
+
+- name: Create the domain list directory
+  ansible.builtin.file:
+    path: /etc/squid/lists
+    state: directory
+    owner: root
+    group: squid
+    mode: "0750"
+
+- name: Write the domain lists
+  ansible.builtin.copy:
+    dest: "/etc/squid/lists/{{ item.file }}"
+    content: "{{ item.domains | join('\n') }}\n"
+    owner: root
+    group: squid
+    mode: "0640"
+  loop:
+    - { file: deny-social.txt, domains: "{{ web_deny_social }}" }
+    - { file: deny-streaming.txt, domains: "{{ web_deny_streaming }}" }
+    - { file: allowlist.txt, domains: "{{ web_allowlist }}" }
+  loop_control:
+    label: "{{ item.file }}"
+  notify: Restart squid
+
+- name: Write the Squid configuration (validated before it is used)
+  ansible.builtin.template:
+    src: squid.conf.j2
+    dest: /etc/squid/squid.conf
+    owner: root
+    group: squid
+    mode: "0640"
+    validate: squid -k parse -f %s
+  notify: Restart squid
+
+- name: Open the proxy ports to the workstation subnet only
+  ansible.posix.firewalld:
+    rich_rule: >-
+      rule family="ipv4" source address="{{ web_proxy_clients }}"
+      port port="{{ item }}" protocol="tcp" accept
+    zone: public
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ web_proxy_ports.values() | list }}"
+
+- name: Apply configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Squid
+  ansible.builtin.systemd_service:
+    name: squid
+    enabled: true
+    state: started
+
+- name: Confirm Squid listens on every policy port
+  ansible.builtin.command: "ss -Htln sport = :{{ item }}"
+  register: web_proxy_listen
+  changed_when: false
+  check_mode: false
+  failed_when: web_proxy_listen.stdout | length == 0
+  loop: "{{ web_proxy_ports.values() | list }}"

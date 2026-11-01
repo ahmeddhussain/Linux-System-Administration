@@ -50,6 +50,23 @@ for u, k in yaml.safe_load(sys.stdin)["test_user_private_keys"].items():
     ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
       -o IdentitiesOnly=yes -o ConnectTimeout=10 -i "$keydir/$1" "$1@$2" "$3" > /dev/null 2>&1
   }
+  # web <user> <host-ip> <url> <200|403|000> [proxy-port]: the proxy's answer
+  # to CONNECT, from that user's login shell (so ahmed-proxy.sh applies).
+  # 200 allowed, 403 denied by policy, 000 connection refused (nftables).
+  web() {
+    local got proxy=""
+    [ -n "${5:-}" ] && proxy="-x http://util01.ahmed.internal:$5"
+    got="$(ssh -n -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      -o IdentitiesOnly=yes -o ConnectTimeout=10 -i "$keydir/$1" "$1@$2" \
+      "bash -lc 'curl -s -o /dev/null -m 10 $proxy -w %{http_connect} $3'" 2> /dev/null)"
+    got="${got:-000}"
+    if [ "$got" = "$4" ]; then
+      echo "PASS  web $1@$2 $3${5:+ via :$5} -> $4"; pass=$((pass + 1))
+    else
+      echo "FAIL  web $1@$2 $3${5:+ via :$5} expected $4, got $got"; fail=$((fail + 1))
+    fi
+  }
+
   # login <user> <host-ip> <allowed|denied>
   login() {
     local got=denied
@@ -208,6 +225,23 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   login   contractor1 10.0.2.10 allowed
   sudo_as contractor1 10.0.2.10 id denied
   login   contractor1 10.0.1.12 denied
+
+  echo "== Web access through Squid (D-057): standard vs allow-list, per user"
+  check "Squid listens on util01 (3128, 3129)"     "ansible util01 -b -m shell -a 'ss -Htln sport = :3128 | grep -q . && ss -Htln sport = :3129 | grep -q .'"
+  check "dnf on workstations works through the proxy" "ansible role_workstation -b -m shell -a 'dnf -q makecache --refresh'"
+  web ahmed       10.0.2.10 https://example.com      200
+  web ahmed       10.0.2.10 https://chatgpt.com      200
+  web ahmed       10.0.2.10 https://www.youtube.com  403
+  web ahmed       10.0.2.10 https://www.facebook.com 403
+  web sara        10.0.2.11 https://example.com      200
+  web sara        10.0.2.11 https://www.reddit.com   403
+  web contractor1 10.0.2.10 https://github.com       200
+  web contractor1 10.0.2.10 https://example.com      403
+  web contractor1 10.0.2.10 https://example.com      000 3128
+  web omar        10.0.2.11 https://pypi.org         200
+  web omar        10.0.2.11 https://example.com      403
+  web omar        10.0.2.11 https://example.com      000 3128
+  check "per-user rule survives a firewalld reload" "ansible role_workstation -b -m shell -a 'firewall-cmd --reload >/dev/null && nft list table inet ahmed_proxy >/dev/null'"
 
   echo "== Per-team VPN policy (test peers through wstunnel; gw01 firewall + security groups)"
   vpn_peers_up

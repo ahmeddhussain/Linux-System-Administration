@@ -10,3 +10,14 @@ ipa_realm: AHMED.INTERNAL
 ipaclient_no_ntp: true
 # Create a home directory on first login (NFS homes come later, util01).
 ipaclient_mkhomedir: true
+
+# Web proxy (D-057): Squid on util01, one port per policy. Workstations
+# reach the web only through it; each user may use only their team's port.
+web_proxy_host: util01.ahmed.internal
+web_proxy_ports:
+  standard: 3128    # everything over HTTPS except the deny lists
+  allowlist: 3129   # only the allow-listed domains
+# Policy per IPA team group (identity.yml). Teams not listed get "standard".
+web_proxy_team_policy:
+  dba: allowlist
+  contractors: allowlist

@@ -1,0 +1,39 @@
+---
+# Squid domain lists (D-057). A leading dot matches the domain and every
+# subdomain. HTTPS is filtered by domain only (no TLS interception, D-008).
+# Change a list here and rerun site.yml; nothing is edited on util01.
+
+# Denied on the "standard" policy: social media and video/music streaming.
+# AI assistants are deliberately not listed: developers use them for work.
+web_deny_social:
+  - .facebook.com
+  - .fbcdn.net
+  - .instagram.com
+  - .tiktok.com
+  - .twitter.com
+  - .x.com
+  - .snapchat.com
+  - .pinterest.com
+  - .reddit.com
+web_deny_streaming:
+  - .youtube.com
+  - .youtu.be
+  - .googlevideo.com
+  - .netflix.com
+  - .nflxvideo.net
+  - .twitch.tv
+  - .disneyplus.com
+  - .primevideo.com
+  - .hulu.com
+  - .spotify.com
+
+# The only domains allowed on the "allowlist" policy (dba, contractors):
+# package repositories, source hosting and documentation needed for work.
+web_allowlist:
+  - .redhat.com
+  - .fedoraproject.org
+  - .github.com
+  - .githubusercontent.com
+  - .pypi.org
+  - .pythonhosted.org
+  - .python.org

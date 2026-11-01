@@ -1,0 +1,16 @@
+# Managed by Ansible (role: proxy_client). Web access goes through Squid on
+# util01 (D-057). The port follows the user's team; the nftables rule on
+# this host enforces it, so changing these variables does not bypass it.
+_ahmed_proxy_port={{ web_proxy_ports.standard }}
+for _g in $(id -Gn 2>/dev/null); do
+  case "$_g" in
+{% for team, policy in web_proxy_team_policy.items() %}
+    {{ team }}) _ahmed_proxy_port={{ web_proxy_ports[policy] }} ;;
+{% endfor %}
+  esac
+done
+export https_proxy="http://{{ web_proxy_host }}:${_ahmed_proxy_port}"
+export HTTPS_PROXY="$https_proxy"
+export no_proxy="localhost,127.0.0.1,.{{ ipa_domain }},10.0.0.0/16"
+export NO_PROXY="$no_proxy"
+unset _ahmed_proxy_port _g
