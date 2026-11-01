@@ -15,6 +15,16 @@
   roles:
     - util_storage
 
+- name: NFS home directories on util01 (D-058)
+  hosts: role_util
+  roles:
+    - nfs_home_server
+
+- name: Workstations mount home directories from util01 (D-058)
+  hosts: role_workstation
+  roles:
+    - nfs_home_client
+
 - name: Web proxy on util01 (D-057)
   hosts: role_util
   roles:

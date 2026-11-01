@@ -1,0 +1,40 @@
+---
+# Workstations mount IPA users' homes from util01 with autofs (D-058). The
+# map lives in IPA (identity.yml); SSSD serves it to autofs.
+
+- name: Let processes use home directories on NFS (SELinux)
+  ansible.posix.seboolean:
+    name: use_nfs_home_dirs
+    state: true
+    persistent: true
+
+- name: Install autofs
+  ansible.builtin.dnf:
+    name: autofs
+    state: present
+
+- name: Check whether automount maps already come from IPA
+  ansible.builtin.command: grep -qE '^automount:.*\bsss\b' /etc/nsswitch.conf
+  register: nfs_home_client_nss
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Read automount maps from IPA (location {{ hostvars[groups['ipaservers'][0]].ipa_automount_location }})
+  ansible.builtin.command: >-
+    ipa-client-automount --unattended
+    --location={{ hostvars[groups['ipaservers'][0]].ipa_automount_location }}
+  when: nfs_home_client_nss.rc != 0
+
+- name: Enable and start autofs
+  ansible.builtin.systemd_service:
+    name: autofs
+    enabled: true
+    state: started
+
+- name: Confirm autofs knows the home directory map
+  ansible.builtin.command: automount -m
+  register: nfs_home_client_maps
+  changed_when: false
+  check_mode: false
+  failed_when: hostvars[groups['ipaservers'][0]].ipa_homes_root not in nfs_home_client_maps.stdout

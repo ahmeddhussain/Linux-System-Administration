@@ -81,6 +81,16 @@ locals {
         }
       }
     ]...),
+    # NFSv4 home directories on util01 (D-058).
+    {
+      for sg in local.workstation_sgs : "${sg}_to_util_nfs" => {
+        from        = sg
+        to          = "util"
+        protocol    = "tcp"
+        port        = 2049
+        description = "NFSv4 home directories on util01"
+      }
+    },
     {
       for sg in local.workstation_sgs : "control_to_${sg}" => {
         from        = "control"

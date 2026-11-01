@@ -72,15 +72,38 @@
   loop_control:
     label: "{{ item.value.mount }}"
 
-- name: Record the SELinux type of each data area
+- name: Remove a plain SELinux type rule where the area copies another path's labels
+  ansible.builtin.shell: >-
+    if semanage fcontext -l -C | grep -qF '{{ item.value.mount }}(/.*)?'; then
+    semanage fcontext -d '{{ item.value.mount }}(/.*)?' && echo removed; fi
+  register: util_storage_fcontext_old
+  changed_when: "'removed' in util_storage_fcontext_old.stdout"
+  when: item.value.selinux_like is defined
+  loop: "{{ util_storage_volumes | dict2items }}"
+  loop_control:
+    label: "{{ item.value.mount }}"
+
+- name: Label each data area like the path it copies (equivalence)
+  ansible.builtin.shell: >-
+    semanage fcontext -l -C | grep -qE '^{{ item.value.mount }} = {{ item.value.selinux_like }}$' ||
+    { semanage fcontext -a -e {{ item.value.selinux_like }} {{ item.value.mount }} && echo added; }
+  register: util_storage_fcontext_eq
+  changed_when: "'added' in util_storage_fcontext_eq.stdout"
+  when: item.value.selinux_like is defined
+  loop: "{{ util_storage_volumes | dict2items }}"
+  loop_control:
+    label: "{{ item.value.mount }} = {{ item.value.selinux_like | default('') }}"
+
+- name: Record the SELinux type of the other data areas
   ansible.builtin.shell: >-
     semanage fcontext -l | grep -qF '{{ item.value.mount }}(/.*)?' ||
     { semanage fcontext -a -t {{ item.value.setype }} '{{ item.value.mount }}(/.*)?' && echo added; }
   register: util_storage_fcontext
   changed_when: "'added' in util_storage_fcontext.stdout"
+  when: item.value.setype is defined
   loop: "{{ util_storage_volumes | dict2items }}"
   loop_control:
-    label: "{{ item.value.mount }} -> {{ item.value.setype }}"
+    label: "{{ item.value.mount }} -> {{ item.value.setype | default('') }}"
 
 - name: Apply the SELinux types
   ansible.builtin.command: "restorecon -Rv {{ item.value.mount }}"

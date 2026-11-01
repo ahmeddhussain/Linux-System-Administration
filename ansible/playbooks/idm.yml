@@ -128,12 +128,18 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Users (SSH keys, expiry)
+    - name: Default home directory base for new users (D-058)
+      freeipa.ansible_freeipa.ipaconfig:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        homedirectory: "{{ ipa_homes_root }}"
+
+    - name: Users (SSH keys, home directory, expiry)
       freeipa.ansible_freeipa.ipauser:
         ipaadmin_password: "{{ ipaadmin_password }}"
         name: "{{ item.name }}"
         first: "{{ item.first }}"
         last: "{{ item.last }}"
+        homedir: "{{ ipa_homes_root }}/{{ item.name }}"
         sshpubkey: "{{ item.sshpubkey }}"
         principalexpiration: "{{ item.principalexpiration | default(omit) }}"
         update_password: on_create
@@ -174,6 +180,33 @@
       loop: "{{ ipa_hbacrules }}"
       loop_control:
         label: "{{ item.name }}"
+
+    # Automount (D-058): /users/<name> comes from util01 on the workstations.
+    - name: Automount map for home directories
+      freeipa.ansible_freeipa.ipaautomountmap:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        location: "{{ ipa_automount_location }}"
+        name: auto.home
+        desc: "Home directories of IPA users on util01 (D-058)"
+        state: present
+
+    - name: Mount the map at the home directory base
+      freeipa.ansible_freeipa.ipaautomountkey:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        location: "{{ ipa_automount_location }}"
+        mapname: auto.master
+        key: "{{ ipa_homes_root }}"
+        info: auto.home
+        state: present
+
+    - name: Every user's home comes from util01 over NFSv4
+      freeipa.ansible_freeipa.ipaautomountkey:
+        ipaadmin_password: "{{ ipaadmin_password }}"
+        location: "{{ ipa_automount_location }}"
+        mapname: auto.home
+        key: "*"
+        info: "-fstype=nfs4,rw,sec=sys {{ ipa_homes_nfs_export }}/&"
+        state: present
 
     - name: Commands used by restricted sudo rules
       freeipa.ansible_freeipa.ipasudocmd:
@@ -235,11 +268,32 @@
       changed_when: false
       check_mode: false
 
+    # IPA homes live under /users (D-058): label it like /home, and create it
+    # so servers can make local homes there on first login.
+    - name: Label the IPA home directory base like /home (SELinux)
+      ansible.builtin.shell: >-
+        semanage fcontext -l -C | grep -qE '^{{ ipa_homes_root }} = /home$' ||
+        { semanage fcontext -a -e /home {{ ipa_homes_root }} && echo added; }
+      vars:
+        ipa_homes_root: "{{ hostvars[groups['ipaservers'][0]].ipa_homes_root }}"
+      register: ipa_homes_fcontext
+      changed_when: "'added' in ipa_homes_fcontext.stdout"
+
+    - name: Create the IPA home directory base
+      ansible.builtin.file:
+        path: "{{ hostvars[groups['ipaservers'][0]].ipa_homes_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+        setype: home_root_t
+      when: "'role_workstation' not in group_names"
+
     - name: Record the checksum of the identity data on this client
       ansible.builtin.copy:
         dest: /var/lib/sss/ahmed-identity.sha256
         content: >-
-          {{ ['ipa_users', 'ipa_groups', 'ipa_hostgroups', 'ipa_hbacrules', 'ipa_sudocmds', 'ipa_sudorules']
+          {{ ['ipa_users', 'ipa_groups', 'ipa_hostgroups', 'ipa_hbacrules', 'ipa_sudocmds', 'ipa_sudorules', 'ipa_homes_root']
              | map('extract', hostvars[groups['ipaservers'][0]]) | list | to_json | hash('sha256') }}
         owner: root
         group: root

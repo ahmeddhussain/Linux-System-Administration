@@ -625,3 +625,22 @@ Every design choice: what we chose, what else we considered, and why.
   they cannot remove it; ops have full sudo on ws-ops01 but already get the
   more open policy. HTTPS is filtered by domain only (no TLS interception,
   as D-008 says). Plain HTTP is not proxied (port 80 stays closed, D-034).
+
+## D-058: NFS home directories - util01, workstations only, sec=sys, IPA automount
+- **Chosen:** util01 exports /export/home over NFSv4 only (no v3, no UDP)
+  with sec=sys and root_squash, to the two workstation addresses only;
+  TCP 2049 is open only from the workstation security groups. IPA holds the
+  automount map (location default, auto.home mounted at /users, key *);
+  only the workstations run autofs. IPA users' home directory is
+  /users/<name>; local accounts (ansible, ec2-user) keep /home. Home
+  directories are created on util01 from the identity data.
+- **Alternatives:** sec=krb5p (needs user passwords and tickets, changes
+  D-048); homes on every host; automount maps as files from Ansible;
+  automounting /home itself
+- **Why:** Works with key-only logins now. Workstations only, so servers
+  never depend on util01 for logins. The IPA map is central, like the rest
+  of identity. /home cannot be automounted because that would hide the
+  local accounts, including the ansible account's SSH key. Known gap: with
+  sec=sys the server trusts the workstation's user IDs, so root on a
+  workstation (ops on ws-ops01) could read other users' homes; the
+  upgrade is krb5p once users have passwords.

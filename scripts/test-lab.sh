@@ -67,6 +67,16 @@ for u, k in yaml.safe_load(sys.stdin)["test_user_private_keys"].items():
     fi
   }
 
+  # as_check "description" <user> <host-ip> <command>: PASS when the command
+  # succeeds in that user's login session
+  as_check() {
+    if as_user "$2" "$3" "bash -lc '$4'"; then
+      echo "PASS  $1"; pass=$((pass + 1))
+    else
+      echo "FAIL  $1"; fail=$((fail + 1))
+    fi
+  }
+
   # login <user> <host-ip> <allowed|denied>
   login() {
     local got=denied
@@ -226,6 +236,16 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   login   contractor1 10.0.2.10 allowed
   sudo_as contractor1 10.0.2.10 id denied
   login   contractor1 10.0.1.12 denied
+
+  echo "== NFS home directories (D-058): util01 -> workstations"
+  check "util01 exports homes, NFSv4 only"          "ansible util01 -b -m shell -a 'exportfs -s | grep -q /export/home && grep -q -- -3 /proc/fs/nfsd/versions'"
+  as_check "ahmed's home on ws-dev01 is NFS at /users/ahmed" ahmed 10.0.2.10 'test "$PWD" = /users/ahmed && findmnt -n -o FSTYPE -T . | grep -q nfs4'
+  as_check "sara's home on ws-ops01 is NFS"          sara  10.0.2.11 'findmnt -n -o FSTYPE -T ~ | grep -q nfs4'
+  token="nfs-check-$(date +%s)"
+  as_check "a file written on ws-dev01 ..."          ahmed.admin 10.0.2.10 "echo $token > ~/.nfs-check"
+  as_check "... is readable on ws-ops01 (same home)" ahmed.admin 10.0.2.11 "grep -q $token ~/.nfs-check"
+  check "root on a workstation cannot read another user's home (root_squash)" "ansible ws-ops01 -b -m shell -a '! ls /users/sara'"
+  as_check "servers keep local homes (idm01)"        ahmed.admin 10.0.1.11 '! findmnt -n -T ~ -o FSTYPE | grep -q nfs'
 
   echo "== Web access through Squid (D-057): standard vs allow-list, per user"
   check "Squid listens on util01 (3128, 3129)"     "ansible util01 -b -m shell -a 'ss -Htln sport = :3128 | grep -q . && ss -Htln sport = :3129 | grep -q .'"

@@ -8,6 +8,13 @@
 # ansible/tests/test-user-keys.vault.yml, used by scripts/test-lab.sh).
 # Ahmed's two accounts also accept the laptop key.
 
+# Home directories of IPA users (D-058). On workstations /users is an
+# automount of util01:/export/home; on servers homes are created locally.
+# Not /home: that would hide local accounts such as ansible.
+ipa_homes_root: /users
+ipa_automount_location: default
+ipa_homes_nfs_export: util01.ahmed.internal:/export/home
+
 ipa_users:
   - name: ahmed.admin
     first: Ahmed

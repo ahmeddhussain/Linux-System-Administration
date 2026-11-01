@@ -1,0 +1,89 @@
+---
+# NFSv4 home directories on util01 for the workstations (D-058).
+
+- name: Install the NFS server
+  ansible.builtin.dnf:
+    name: nfs-utils
+    state: present
+
+- name: Serve NFSv4 only (no v3, no UDP)
+  ansible.builtin.copy:
+    dest: /etc/nfs.conf.d/ahmed.conf
+    content: |
+      # Managed by Ansible (role: nfs_home_server). NFSv4 over TCP only (D-058).
+      [nfsd]
+      vers3=n
+      udp=n
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart the NFS server
+
+- name: Export the home directories to the workstations only
+  ansible.builtin.copy:
+    dest: /etc/exports.d/ahmed-homes.exports
+    content: |
+      # Managed by Ansible (role: nfs_home_server). sec=sys, root squashed (D-058).
+      /export/home {% for h in groups['role_workstation'] | sort %}{{ hostvars[h].ansible_host }}(rw,sync,sec=sys,root_squash,no_subtree_check) {% endfor %}
+
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Re-export
+
+- name: Open NFS to the workstations only
+  ansible.posix.firewalld:
+    rich_rule: >-
+      rule family="ipv4" source address="{{ hostvars[item].ansible_host }}/32"
+      port port="2049" protocol="tcp" accept
+    zone: public
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ groups['role_workstation'] | sort }}"
+
+- name: Enable and start the NFS server
+  ansible.builtin.systemd_service:
+    name: nfs-server
+    enabled: true
+    state: started
+
+# One home per IPA user, from the identity data. Owners resolve through
+# SSSD on util01, which is an IPA client.
+- name: Create every IPA user's home directory
+  ansible.builtin.file:
+    path: "/export/home/{{ item.name }}"
+    state: directory
+    owner: "{{ item.name }}"
+    group: "{{ item.name }}"
+    mode: "0700"
+  loop: "{{ hostvars[groups['ipaservers'][0]].ipa_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: nfs_home_dirs
+
+- name: Copy the default files into new home directories
+  ansible.builtin.shell: >-
+    cp -a --no-clobber /etc/skel/. '/export/home/{{ item.item.name }}/' &&
+    chown -R '{{ item.item.name }}:{{ item.item.name }}' '/export/home/{{ item.item.name }}'
+  when: item.changed
+  loop: "{{ nfs_home_dirs.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Apply SELinux labels to the home directories
+  ansible.builtin.command: restorecon -Rv /export/home
+  register: nfs_home_restorecon
+  changed_when: nfs_home_restorecon.stdout | length > 0
+
+- name: Apply export changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Confirm the export is active for every workstation
+  ansible.builtin.command: exportfs -s
+  register: nfs_home_exports
+  changed_when: false
+  check_mode: false
+  failed_when: >-
+    groups['role_workstation'] | map('extract', hostvars, 'ansible_host')
+    | reject('in', nfs_home_exports.stdout) | list | length > 0

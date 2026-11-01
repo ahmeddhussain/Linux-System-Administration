@@ -1,9 +1,11 @@
 ---
 # util01 data volume and backups (D-056).
 util_storage_vg: vg_data
-# name: [size, mount point, SELinux type]
+# name: size, mount point, and either an SELinux type (setype) or a path
+# whose labels it copies (selinux_like). NFS homes copy /home, so every
+# user directory gets the user home type (D-058).
 util_storage_volumes:
-  home: { size: 10G, mount: /export/home, setype: home_root_t }
+  home: { size: 10G, mount: /export/home, selinux_like: /home }
   logs: { size: 6G, mount: /srv/logs, setype: var_log_t }
 
 # Backups go to the bucket made by terraform/persistent; its name ends with
