@@ -210,13 +210,11 @@
   serial: 3
   tasks:
     - name: Record the checksum of the identity data on this client
-      vars:
-        idm: "{{ hostvars[groups['ipaservers'][0]] }}"
       ansible.builtin.copy:
         dest: /var/lib/sss/ahmed-identity.sha256
         content: >-
-          {{ [idm.ipa_users, idm.ipa_groups, idm.ipa_hostgroups, idm.ipa_hbacrules,
-              idm.ipa_sudocmds, idm.ipa_sudorules] | to_json | hash('sha256') }}
+          {{ ['ipa_users', 'ipa_groups', 'ipa_hostgroups', 'ipa_hbacrules', 'ipa_sudocmds', 'ipa_sudorules']
+             | map('extract', hostvars[groups['ipaservers'][0]]) | list | to_json | hash('sha256') }}
         owner: root
         group: root
         mode: "0644"
