@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Managed by Ansible (role: wireguard_gateway). Do not edit by hand. -->
+<!-- The tunnel interface. Traffic from a team range is classified into that
+     team's zone by source address first; anything else is dropped (D-052). -->
+<zone target="DROP">
+  <short>vpn</short>
+  <description>WireGuard tunnel interface: drop anything not from a team range</description>
+  <interface name="{{ wireguard_interface }}"/>
+</zone>

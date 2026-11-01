@@ -18,3 +18,44 @@ wireguard_peers:
     team: admin
     address: 10.8.0.2/32
     public_key: gzMVjy3mtBjSr3JNd7v5U1eSWUrLSY5E8qKHeif4xDw=
+  # Synthetic test peers, one per team (D-055). Private keys:
+  # ansible/tests/test-vpn-peers.vault.yml. Used only by scripts/test-lab.sh.
+  - name: test-admin
+    team: admin
+    address: 10.8.0.250/32
+    public_key: 7tEngdC0hh3d/5DQqFZwoUt66lOEqSFtFdUl4KVK/X4=
+  - name: test-dev
+    team: dev
+    address: 10.8.1.250/32
+    public_key: hmZmRWoFOYDFpdhCJnIN6blv6+yZNgc/so13xcscwAI=
+  - name: test-ops
+    team: ops
+    address: 10.8.2.250/32
+    public_key: J0ZhqHyZlczWkRQzGxAFhj7QezUegAA+AaOh6xC6mm8=
+
+# Per-team VPN policy on gw01 (D-052 to D-054). Each team's range gets its
+# own firewalld zone; it may open only the connections listed here (and
+# ping them if "ping" is set). Replies are always allowed. Anything not
+# listed is rejected. Every range may ping gw01 itself. Hosts are inventory
+# names; the role looks up their addresses.
+# The security groups in terraform/main.tf enforce the same boundary.
+vpn_team_policy:
+  admin:
+    cidr: 10.8.0.0/24
+    gateway_ssh: true            # SSH to gw01 itself (D-054)
+    ping: true                   # security groups accept ICMP from admin only
+    allow:
+      - { host: control01, port: 22 }
+      - { host: idm01, port: 443 }     # IPA web UI (D-051)
+      - { host: ws-dev01, port: 22 }
+      - { host: ws-ops01, port: 22 }
+  dev:
+    cidr: 10.8.1.0/24
+    allow:
+      - { host: ws-dev01, port: 22 }
+  ops:
+    cidr: 10.8.2.0/24
+    allow:
+      - { host: ws-ops01, port: 22 }
+      - { host: idm01, port: 22 }      # D-053
+      - { host: util01, port: 22 }

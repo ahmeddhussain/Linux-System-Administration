@@ -116,6 +116,7 @@ variable "hosts" {
     allocate_eip      = optional(bool, false)
     source_dest_check = optional(bool, true)
     control_node_role = optional(bool, false)
+    security_group    = optional(string) # defaults to role
     extra_volumes = optional(map(object({
       device_name = string
       size        = number
@@ -158,18 +159,20 @@ variable "hosts" {
       }
     }
     ws-dev01 = {
-      role          = "workstation"
-      subnet        = "workstation"
-      private_ip    = "10.0.2.10"
-      instance_type = "t3.small"
-      team          = "dev"
+      role           = "workstation"
+      security_group = "workstation-dev"
+      subnet         = "workstation"
+      private_ip     = "10.0.2.10"
+      instance_type  = "t3.small"
+      team           = "dev"
     }
     ws-ops01 = {
-      role          = "workstation"
-      subnet        = "workstation"
-      private_ip    = "10.0.2.11"
-      instance_type = "t3.small"
-      team          = "ops"
+      role           = "workstation"
+      security_group = "workstation-ops"
+      subnet         = "workstation"
+      private_ip     = "10.0.2.11"
+      instance_type  = "t3.small"
+      team           = "ops"
     }
   }
 
@@ -179,8 +182,8 @@ variable "hosts" {
   }
 
   validation {
-    condition     = alltrue([for h in values(var.hosts) : contains(local.host_roles, h.role)])
-    error_message = "Every host's role must be one of the host roles in main.tf (local.roles without eice)."
+    condition     = alltrue([for h in values(var.hosts) : contains(local.host_roles, coalesce(h.security_group, h.role))])
+    error_message = "Every host's security group (security_group, or role) must be one of local.roles in main.tf, without eice."
   }
 
   validation {

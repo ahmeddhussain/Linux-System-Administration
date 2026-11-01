@@ -538,3 +538,49 @@ Every design choice: what we chose, what else we considered, and why.
   address. Enrolling gw01 makes admin logins on the edge host named and
   audited, at the cost of a host keytab that only identifies gw01. The
   local automation account means Ansible never depends on IPA being up.
+
+## D-052: Per-team VPN policy - firewalld on gw01 plus split security groups
+- **Chosen:** on gw01, one firewalld zone per team VPN range (vpn-admin,
+  vpn-dev, vpn-ops, by source address) and one forwarding policy per team
+  that allows only the hosts and ports listed in group_vars; wg0 itself sits
+  in a zone that drops everything else. Zones and policies are written as
+  firewalld XML from templates, so the files on gw01 always equal the data.
+  In AWS, the shared workstation security group is split into
+  workstation-dev and workstation-ops, each accepting SSH only from admin
+  and its own team's range.
+- **Alternatives:** firewalld only; security groups only; firewall-cmd
+  commands per rule; nftables written directly
+- **Why:** Two independent layers enforce the same boundary, so one mistake
+  is not an open path. firewalld matches the design of the rest of the
+  lab; whole-file templates make removing a rule as reliable as adding one
+  (rule-by-rule commands only ever add). The ansible.posix firewalld module
+  has no policy support. Supersedes the trusted-zone binding of D-038 and
+  the single vpn_to_vpc policy.
+
+## D-053: Ops reach servers directly from the ops VPN range
+- **Chosen:** 10.8.2.0/24 may SSH to idm01 and util01 (gw01 policy and a
+  security group rule on each); IPA login rules remain the second check
+- **Alternatives:** jump through ws-ops01; keep it deferred; through control01
+- **Why:** Routed without NAT (D-024), so server logs show sara's own VPN
+  address. A jump host adds a hop and a workstation-to-server path that dev
+  workstations must not get. control01 stays admin-only (D-010).
+
+## D-054: gw01 itself - SSH from the admin VPN range only
+- **Chosen:** from the tunnel, only the admin range may open SSH to gw01;
+  other ranges get ICMP only
+- **Alternatives:** nothing from the VPN (admins via control01 only); leave
+  every port open to every peer (the state before this change)
+- **Why:** gw01 is admin-only (D-051). Admin SSH from the VPN helps when the
+  gateway itself needs debugging; every other port and team is refused.
+
+## D-055: Per-team VPN tests with synthetic peers on control01
+- **Chosen:** one WireGuard test peer per team (10.8.0.250, 10.8.1.250,
+  10.8.2.250), keys in Vault, run by test-lab.sh in network namespaces on
+  control01 and carried by wstunnel to gw01's TCP 443, like a real client
+- **Alternatives:** check the firewall configuration only; wait for real
+  team devices; plain WireGuard over UDP inside the VPC
+- **Why:** Proves each team's allowed and blocked paths with real traffic
+  through the real transport. Going through wstunnel needs no new security
+  group flow and keeps UDP 51820 closed. The WireGuard interface is created
+  in the main namespace and moved into the test namespace, so its socket
+  can reach wstunnel on localhost while the test traffic is isolated.

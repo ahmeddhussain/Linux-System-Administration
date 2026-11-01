@@ -1,7 +1,19 @@
 locals {
   # Security group roles. "eice" is the instance connect endpoint, not a host.
-  roles      = toset(["eice", "gateway", "control", "idm", "util", "workstation"])
+  # Each team's workstation has its own group, so AWS enforces the same
+  # per-team boundary as gw01's firewall (D-052).
+  roles      = toset(["eice", "gateway", "control", "idm", "util", "workstation-dev", "workstation-ops"])
   host_roles = setsubtract(local.roles, ["eice"])
+
+  # Security group of each host: its own override, or its role.
+  host_security_group = { for name, h in var.hosts : name => coalesce(h.security_group, h.role) }
+
+  # Which workstation group each team's VPN range may reach.
+  team_workstation_sg = {
+    dev = "workstation-dev"
+    ops = "workstation-ops"
+  }
+  workstation_sgs = toset(values(local.team_workstation_sg))
 
   vpn_admin_cidr = var.vpn_ranges["admin"]
 
@@ -23,7 +35,7 @@ locals {
   # Approved connections between roles. Anything not listed here is denied.
   # To open a new connection: add an entry, run plan, review, apply, and
   # record the change as a ticket.
-  flows = {
+  flows = merge({
     eice_to_control = {
       from        = "eice"
       to          = "control"
@@ -52,14 +64,17 @@ locals {
       port        = 22
       description = "SSH control01 to util01 (Ansible)"
     }
-    control_to_workstation = {
-      from        = "control"
-      to          = "workstation"
-      protocol    = "tcp"
-      port        = 22
-      description = "SSH control01 to workstations (Ansible)"
+    },
+    {
+      for sg in local.workstation_sgs : "control_to_${sg}" => {
+        from        = "control"
+        to          = sg
+        protocol    = "tcp"
+        port        = 22
+        description = "SSH control01 to ${sg} (Ansible)"
+      }
     }
-  }
+  )
 
   # From outside a role: IP ranges allowed in.
   cidr_ingress = merge(
@@ -93,23 +108,44 @@ locals {
         port        = -1
         description = "ICMP from VPN admin range"
       }
-      workstation_icmp_from_vpn_admin = {
-        role        = "workstation"
+    },
+    # Admin over the VPN: every workstation (SSH and ICMP).
+    {
+      for sg in local.workstation_sgs : "${sg}_ssh_from_vpn_admin" => {
+        role        = sg
+        cidr        = local.vpn_admin_cidr
+        protocol    = "tcp"
+        port        = 22
+        description = "SSH from VPN admin range"
+      }
+    },
+    {
+      for sg in local.workstation_sgs : "${sg}_icmp_from_vpn_admin" => {
+        role        = sg
         cidr        = local.vpn_admin_cidr
         protocol    = "icmp"
         port        = -1
         description = "ICMP from VPN admin range"
       }
     },
-    # Employees over the VPN: workstations only. Which workstation each team
-    # may reach is enforced on gw01's firewall (later phase).
+    # Employees over the VPN: only their own team's workstation (D-052).
     {
-      for team, cidr in var.vpn_ranges : "workstation_ssh_from_vpn_${team}" => {
-        role        = "workstation"
-        cidr        = cidr
+      for team, sg in local.team_workstation_sg : "${sg}_ssh_from_vpn_${team}" => {
+        role        = sg
+        cidr        = var.vpn_ranges[team]
         protocol    = "tcp"
         port        = 22
         description = "SSH from VPN range: ${team}"
+      }
+    },
+    # Ops over the VPN: the servers their login rule allows (D-053).
+    {
+      for r in ["idm", "util"] : "${r}_ssh_from_vpn_ops" => {
+        role        = r
+        cidr        = var.vpn_ranges["ops"]
+        protocol    = "tcp"
+        port        = 22
+        description = "SSH from VPN range: ops"
       }
     },
     # FreeIPA: every host in the VPC is a client; the web UI also from the

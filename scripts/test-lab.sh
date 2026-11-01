@@ -39,7 +39,7 @@ main() {
   # IPA test users: private keys from the vault, in memory only, removed on
   # exit. as_user <user> <ip> <command> logs in with that user's key.
   keydir="$(mktemp -d /dev/shm/test-keys.XXXXXX)"
-  trap 'rm -rf "$keydir"' EXIT
+  trap 'vpn_peers_down; rm -rf "$keydir"' EXIT
   ansible-vault view ../ansible/tests/test-user-keys.vault.yml 2> /dev/null \
     | python3 -c 'import os, sys, yaml
 for u, k in yaml.safe_load(sys.stdin)["test_user_private_keys"].items():
@@ -68,6 +68,57 @@ for u, k in yaml.safe_load(sys.stdin)["test_user_private_keys"].items():
       echo "PASS  $1 sudo '$3' on $2 is $4"; pass=$((pass + 1))
     else
       echo "FAIL  $1 sudo '$3' on $2 expected $4, got $got"; fail=$((fail + 1))
+    fi
+  }
+
+  # Per-team VPN test peers (D-055): one per team, inside a network namespace
+  # on control01, carried by wstunnel to gw01:443 like a real client.
+  VPN_TEAMS="admin dev ops"
+  vpn_peers_up() {
+    local gw_pub i=0 team port ns wg
+    gw_pub="$(python3 -c 'import yaml; print(yaml.safe_load(open("inventory/group_vars/role_gateway/main.yml"))["wireguard_server_public_key"])')"
+    ansible-vault view ../ansible/tests/test-vpn-peers.vault.yml 2> /dev/null \
+      | python3 -c 'import os, sys, yaml
+for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
+    with open(os.open(os.path.join(sys.argv[1], "wg-" + t), os.O_WRONLY | os.O_CREAT, 0o600), "w") as f:
+        f.write(k)' "$keydir"
+    for team in $VPN_TEAMS; do
+      port=$((51821 + i)); ns="vpnt-$team"; wg="wgt-$team"
+      nohup /usr/local/bin/wstunnel client \
+        -L "udp://127.0.0.1:$port:localhost:51820?timeout_sec=0" "wss://10.0.0.10:443" \
+        > /dev/null 2>&1 &
+      echo $! >> "$keydir/wstunnel.pids"
+      sudo ip netns add "$ns"
+      # Created here (its socket stays in this namespace and can reach
+      # wstunnel on localhost), then moved into the test namespace.
+      sudo ip link add "$wg" type wireguard
+      sudo wg set "$wg" private-key "$keydir/wg-$team" peer "$gw_pub" \
+        endpoint "127.0.0.1:$port" allowed-ips 10.0.0.0/16,10.8.0.1/32 persistent-keepalive 5
+      sudo ip link set "$wg" netns "$ns"
+      sudo ip -n "$ns" addr add "10.8.$i.250/32" dev "$wg"
+      sudo ip -n "$ns" link set lo up
+      sudo ip -n "$ns" link set "$wg" up
+      sudo ip -n "$ns" route add 10.0.0.0/16 dev "$wg"
+      sudo ip -n "$ns" route add 10.8.0.1/32 dev "$wg"
+      i=$((i + 1))
+    done
+    sleep 3
+  }
+  vpn_peers_down() {
+    local team
+    for team in $VPN_TEAMS; do sudo ip netns del "vpnt-$team" 2> /dev/null; done
+    [ -f "$keydir/wstunnel.pids" ] && xargs -r kill < "$keydir/wstunnel.pids" 2> /dev/null
+    rm -f "$keydir/wstunnel.pids"
+  }
+  # vpn <team> <ip> <port|ping> <open|blocked>: test from that team's peer
+  vpn() {
+    local got=blocked cmd
+    if [ "$3" = ping ]; then cmd="ping -c 2 -W 2 $2"; else cmd="timeout 4 bash -c '</dev/tcp/$2/$3'"; fi
+    sudo ip netns exec "vpnt-$1" bash -c "$cmd" > /dev/null 2>&1 && got=open
+    if [ "$got" = "$4" ]; then
+      echo "PASS  vpn $1 -> $2 $3 is $4"; pass=$((pass + 1))
+    else
+      echo "FAIL  vpn $1 -> $2 $3 expected $4, got $got"; fail=$((fail + 1))
     fi
   }
 
@@ -109,9 +160,9 @@ for u, k in yaml.safe_load(sys.stdin)["test_user_private_keys"].items():
   check "wg-quick@wg0 is active"                   "ansible gw01 -b -m shell -a 'systemctl is-active --quiet wg-quick@wg0'"
   check "wg0 has at least one peer"                "ansible gw01 -b -m shell -a 'wg show wg0 peers | grep -q .'"
   check "gateway key matches the one clients have" "ansible gw01 -b -m shell -a 'test \"\$(wg show wg0 public-key)\" = {{ wireguard_server_public_key }}'"
-  check "wg0 is in the trusted firewall zone"      "ansible gw01 -b -m shell -a 'firewall-cmd --get-active-zones | grep -q wg0'"
+  check "wg0 is in the vpn firewall zone"          "ansible gw01 -b -m shell -a 'test \"\$(firewall-cmd --get-zone-of-interface=wg0)\" = vpn'"
   check "IPv4 forwarding is enabled"               "ansible gw01 -b -m shell -a 'test \$(sysctl -n net.ipv4.ip_forward) = 1'"
-  check "vpn_to_vpc forwarding policy exists"      "ansible gw01 -b -m shell -a 'firewall-cmd --get-policies | grep -qw vpn_to_vpc'"
+  check "per-team forwarding policies are active"  "ansible gw01 -b -m shell -a 'p=\$(firewall-cmd --get-active-policies); for t in admin dev ops; do echo \"\$p\" | grep -qw vpn-\$t-to-vpc || exit 1; done; ! echo \"\$p\" | grep -qw vpn_to_vpc'"
   check "wstunnel is active"                       "ansible gw01 -b -m shell -a 'systemctl is-active --quiet wstunnel'"
   check "wstunnel listens on TCP 443"              "ansible gw01 -b -m shell -a 'ss -Htln sport = :443 | grep -q .'"
   check "WireGuard UDP port is closed to the outside" "ansible gw01 -b -m shell -a '! firewall-cmd --zone=public --list-ports | grep -qw 51820/udp'"
@@ -151,6 +202,36 @@ for u, k in yaml.safe_load(sys.stdin)["test_user_private_keys"].items():
   login   contractor1 10.0.2.10 allowed
   sudo_as contractor1 10.0.2.10 id denied
   login   contractor1 10.0.1.12 denied
+
+  echo "== Per-team VPN policy (test peers through wstunnel; gw01 firewall + security groups)"
+  vpn_peers_up
+  # gw01's tunnel address 10.8.0.1: ping for everyone, SSH for admin only (D-054)
+  vpn admin 10.8.0.1  22   open
+  vpn dev   10.8.0.1  22   blocked
+  vpn ops   10.8.0.1  22   blocked
+  vpn dev   10.8.0.1  ping open
+  # admin: control01, workstations, IPA web UI; servers only via control01
+  vpn admin 10.0.1.10 22   open
+  vpn admin 10.0.1.10 ping open
+  vpn admin 10.0.2.10 22   open
+  vpn admin 10.0.2.11 22   open
+  vpn admin 10.0.1.11 443  open
+  vpn admin 10.0.1.11 22   blocked
+  vpn admin 10.0.1.12 22   blocked
+  # dev: ws-dev01 only
+  vpn dev   10.0.2.10 22   open
+  vpn dev   10.0.2.11 22   blocked
+  vpn dev   10.0.1.10 22   blocked
+  vpn dev   10.0.1.11 22   blocked
+  vpn dev   10.0.2.10 ping blocked
+  # ops: ws-ops01 and the servers idm01, util01 (D-053)
+  vpn ops   10.0.2.11 22   open
+  vpn ops   10.0.1.11 22   open
+  vpn ops   10.0.1.12 22   open
+  vpn ops   10.0.2.10 22   blocked
+  vpn ops   10.0.1.10 22   blocked
+  vpn ops   10.0.1.11 443  blocked
+  vpn_peers_down
 
   if [ "$full" = "yes" ]; then
     echo "== Idempotency (slow): a full site.yml run must change nothing"

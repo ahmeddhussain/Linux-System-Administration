@@ -24,32 +24,8 @@
     quiet: true
   no_log: true
 
-- name: Refuse to install wstunnel without a pinned checksum
-  ansible.builtin.assert:
-    that:
-      - wstunnel_sha256 is match('^[0-9a-f]{64}$')
-    fail_msg: "Set wstunnel_sha256 in roles/wireguard_gateway/defaults/main.yml"
-    quiet: true
-
-- name: Import the EPEL signing key
-  ansible.builtin.rpm_key:
-    key: "{{ wireguard_epel_gpgkey }}"
-    state: present
-
-- name: Define a repository limited to wireguard-tools
-  ansible.builtin.yum_repository:
-    name: epel-wireguard
-    description: EPEL 10 (wireguard-tools only)
-    baseurl: "{{ wireguard_epel_baseurl }}"
-    gpgcheck: true
-    gpgkey: "{{ wireguard_epel_gpgkey }}"
-    includepkgs: wireguard-tools
-    enabled: true
-
-- name: Install the WireGuard tools
-  ansible.builtin.dnf:
-    name: wireguard-tools
-    state: present
+- name: Install the WireGuard tools and wstunnel
+  ansible.builtin.include_tasks: tools.yml
 
 - name: Load the WireGuard kernel module now
   ansible.builtin.command: modprobe wireguard
@@ -145,65 +121,81 @@
     immediate: true
     state: enabled
 
-- name: Bind the tunnel interface to the trusted zone permanently
+# Per-team VPN policy (D-052 to D-054). The zones and policies are whole
+# files, so a rule removed from vpn_team_policy also disappears from gw01.
+# This replaces the single trusted-zone binding (D-038) and vpn_to_vpc.
+- name: Refuse a VPN policy that names a host missing from the inventory
+  ansible.builtin.assert:
+    that:
+      - hostvars[item.1.host] is defined
+      - hostvars[item.1.host].ansible_host is defined
+    fail_msg: "vpn_team_policy {{ item.0.key }}: host {{ item.1.host }} is not in the inventory"
+    quiet: true
+  loop: "{{ vpn_team_policy | dict2items | subelements('value.allow') }}"
+  loop_control:
+    label: "{{ item.0.key }} -> {{ item.1.host }}:{{ item.1.port }}"
+
+- name: Take the tunnel interface out of the old trusted zone
   ansible.posix.firewalld:
     interface: "{{ wireguard_interface }}"
     zone: trusted
     permanent: true
     immediate: true
-    state: enabled
-
-- name: List firewalld policies
-  ansible.builtin.command: firewall-cmd --permanent --get-policies
-  register: wireguard_fw_policies
-  changed_when: false
-  check_mode: false
-
-- name: Create the policy that lets VPN traffic be forwarded into the VPC
-  ansible.builtin.command: "{{ item }}"
-  loop:
-    - firewall-cmd --permanent --new-policy vpn_to_vpc
-    - firewall-cmd --permanent --policy vpn_to_vpc --add-ingress-zone trusted
-    - firewall-cmd --permanent --policy vpn_to_vpc --add-egress-zone public
-    - firewall-cmd --permanent --policy vpn_to_vpc --set-target ACCEPT
-  when: "'vpn_to_vpc' not in wireguard_fw_policies.stdout.split()"
+    state: disabled
   notify: Reload firewalld
 
-- name: Create the wstunnel download directory
+- name: Remove the old allow-everything forwarding policy
   ansible.builtin.file:
-    path: "/opt/wstunnel/{{ wstunnel_version }}"
+    path: /etc/firewalld/policies/vpn_to_vpc.xml
+    state: absent
+  notify: Reload firewalld
+
+- name: Create the firewalld policy directory
+  ansible.builtin.file:
+    path: /etc/firewalld/policies
     state: directory
     owner: root
     group: root
-    mode: "0755"
+    mode: "0750"
 
-- name: Download wstunnel (pinned version, checksum verified)
-  ansible.builtin.get_url:
-    url: "{{ wstunnel_url }}"
-    dest: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel.tar.gz"
-    checksum: "sha256:{{ wstunnel_sha256 }}"
+- name: Write the tunnel interface zone (drops anything not from a team range)
+  ansible.builtin.template:
+    src: vpn-interface-zone.xml.j2
+    dest: /etc/firewalld/zones/vpn.xml
     owner: root
     group: root
     mode: "0644"
+  notify: Reload firewalld
 
-- name: Unpack wstunnel
-  ansible.builtin.unarchive:
-    src: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel.tar.gz"
-    dest: "/opt/wstunnel/{{ wstunnel_version }}"
-    remote_src: true
+- name: Write one zone per team VPN range
+  ansible.builtin.template:
+    src: vpn-zone.xml.j2
+    dest: "/etc/firewalld/zones/vpn-{{ item.key }}.xml"
     owner: root
     group: root
-    creates: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel"
+    mode: "0644"
+  loop: "{{ vpn_team_policy | dict2items }}"
+  loop_control:
+    label: "vpn-{{ item.key }} ({{ item.value.cidr }})"
+  notify: Reload firewalld
 
-- name: Install the wstunnel binary (root-owned, executable, SELinux bin_t)
-  ansible.builtin.copy:
-    src: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel"
-    dest: /usr/local/bin/wstunnel
-    remote_src: true
+- name: Write one forwarding policy per team
+  ansible.builtin.template:
+    src: vpn-policy.xml.j2
+    dest: "/etc/firewalld/policies/vpn-{{ item.key }}-to-vpc.xml"
     owner: root
     group: root
-    mode: "0755"
-    setype: bin_t
+    mode: "0644"
+  loop: "{{ vpn_team_policy | dict2items }}"
+  loop_control:
+    label: "vpn-{{ item.key }}-to-vpc"
+  notify: Reload firewalld
+
+- name: Restart wstunnel when its binary changed
+  ansible.builtin.debug:
+    msg: "wstunnel binary updated"
+  when: wireguard_wstunnel_binary.changed
+  changed_when: true
   notify: Restart wstunnel
 
 - name: Install the wstunnel service
@@ -237,6 +229,22 @@
   changed_when: false
   check_mode: false
   failed_when: (wireguard_running_peers.stdout | int) != (wireguard_peers | length)
+
+- name: Confirm the tunnel interface is in the vpn zone
+  ansible.builtin.command: "firewall-cmd --get-zone-of-interface={{ wireguard_interface }}"
+  register: wireguard_wg_zone
+  changed_when: false
+  check_mode: false
+  failed_when: wireguard_wg_zone.stdout != 'vpn'
+
+- name: Confirm every team's forwarding policy is active
+  ansible.builtin.command: firewall-cmd --get-active-policies
+  register: wireguard_active_policies
+  changed_when: false
+  check_mode: false
+  failed_when: >-
+    (vpn_team_policy.keys() | map('regex_replace', '^', 'vpn-') | map('regex_replace', '$', '-to-vpc') | list)
+    | difference(wireguard_active_policies.stdout_lines | map('trim') | list) | length > 0
 
 - name: Confirm wstunnel is listening
   ansible.builtin.command: "ss -Htln sport = :{{ wstunnel_port }}"

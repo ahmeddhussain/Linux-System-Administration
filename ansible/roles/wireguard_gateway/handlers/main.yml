@@ -1,6 +1,8 @@
 ---
+# Validate the permanent configuration first: a bad file must never be
+# loaded (a failed reload keeps the running rules, but say why).
 - name: Reload firewalld
-  ansible.builtin.command: firewall-cmd --reload
+  ansible.builtin.shell: firewall-cmd --check-config && firewall-cmd --reload
 
 - name: Restart WireGuard
   ansible.builtin.systemd_service:

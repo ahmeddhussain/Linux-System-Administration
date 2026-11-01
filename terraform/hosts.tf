@@ -8,7 +8,7 @@ module "hosts" {
   instance_type        = each.value.instance_type
   subnet_id            = module.network.subnet_ids[each.value.subnet]
   private_ip           = each.value.private_ip
-  security_group_ids   = [module.security_groups.security_group_ids[each.value.role]]
+  security_group_ids   = [module.security_groups.security_group_ids[local.host_security_group[each.key]]]
   key_name             = aws_key_pair.bootstrap.key_name
   iam_instance_profile = each.value.control_node_role ? aws_iam_instance_profile.control_node.name : null
   allocate_eip         = each.value.allocate_eip

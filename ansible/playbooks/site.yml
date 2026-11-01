@@ -14,3 +14,11 @@
   hosts: role_gateway
   roles:
     - wireguard_gateway
+
+- name: Tools for the per-team VPN test peers on control01 (D-055)
+  hosts: role_control
+  tasks:
+    - name: WireGuard tools and the pinned wstunnel binary
+      ansible.builtin.include_role:
+        name: wireguard_gateway
+        tasks_from: tools

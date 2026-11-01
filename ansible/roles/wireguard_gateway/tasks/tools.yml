@@ -1,0 +1,68 @@
+---
+# WireGuard tools and the pinned wstunnel binary. Used by this role on gw01
+# and, through include_role tasks_from: tools, on control01 for the
+# per-team VPN test peers (D-055). No services are started here.
+
+- name: Refuse to install wstunnel without a pinned checksum
+  ansible.builtin.assert:
+    that:
+      - wstunnel_sha256 is match('^[0-9a-f]{64}$')
+    fail_msg: "Set wstunnel_sha256 in roles/wireguard_gateway/defaults/main.yml"
+    quiet: true
+
+- name: Import the EPEL signing key
+  ansible.builtin.rpm_key:
+    key: "{{ wireguard_epel_gpgkey }}"
+    state: present
+
+- name: Define a repository limited to wireguard-tools
+  ansible.builtin.yum_repository:
+    name: epel-wireguard
+    description: EPEL 10 (wireguard-tools only)
+    baseurl: "{{ wireguard_epel_baseurl }}"
+    gpgcheck: true
+    gpgkey: "{{ wireguard_epel_gpgkey }}"
+    includepkgs: wireguard-tools
+    enabled: true
+
+- name: Install the WireGuard tools
+  ansible.builtin.dnf:
+    name: wireguard-tools
+    state: present
+
+- name: Create the wstunnel download directory
+  ansible.builtin.file:
+    path: "/opt/wstunnel/{{ wstunnel_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download wstunnel (pinned version, checksum verified)
+  ansible.builtin.get_url:
+    url: "{{ wstunnel_url }}"
+    dest: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel.tar.gz"
+    checksum: "sha256:{{ wstunnel_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Unpack wstunnel
+  ansible.builtin.unarchive:
+    src: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel.tar.gz"
+    dest: "/opt/wstunnel/{{ wstunnel_version }}"
+    remote_src: true
+    owner: root
+    group: root
+    creates: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel"
+
+- name: Install the wstunnel binary (root-owned, executable, SELinux bin_t)
+  ansible.builtin.copy:
+    src: "/opt/wstunnel/{{ wstunnel_version }}/wstunnel"
+    dest: /usr/local/bin/wstunnel
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+    setype: bin_t
+  register: wireguard_wstunnel_binary

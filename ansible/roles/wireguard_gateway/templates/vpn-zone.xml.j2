@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Managed by Ansible (role: wireguard_gateway). Do not edit by hand. -->
+<zone>
+  <short>vpn-{{ item.key }}</short>
+  <description>VPN range of team {{ item.key }}: traffic to gw01 itself (D-052, D-054)</description>
+  <source address="{{ item.value.cidr }}"/>
+{% if item.value.gateway_ssh | default(false) %}
+  <service name="ssh"/>
+{% endif %}
+</zone>
