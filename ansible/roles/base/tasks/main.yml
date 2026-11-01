@@ -28,6 +28,18 @@
     enabled: true
     state: started
 
+# systemd reports firewalld started before it has loaded its configuration,
+# and the firewalld module fails if called in that gap (seen on a freshly
+# built gw01). Wait until it answers.
+- name: Wait until the host firewall is ready
+  ansible.builtin.command: firewall-cmd --state
+  register: base_firewalld_state
+  until: base_firewalld_state.rc == 0
+  retries: 15
+  delay: 2
+  changed_when: false
+  check_mode: false
+
 - name: Keep SSH allowed in the host firewall
   ansible.posix.firewalld:
     service: ssh
