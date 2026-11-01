@@ -31,6 +31,7 @@ usage() {
 
 cmd_refresh() {
   require_tools wg wg-quick terraform ssh
+  sudo -v || die "sudo is needed to read and write /etc/wireguard; run this from a terminal."
   sudo test -f "$WG_KEY" || die "Missing $WG_KEY. Generate your key pair first (docs/runbooks/vpn-client.md)."
   log "Fetching the gateway's WireGuard public key"
   local server_pub
