@@ -2,6 +2,10 @@
 # FreeIPA clients: every host except idm01 (D-051).
 ipaclient_domain: "{{ ipa_domain }}"
 ipaclient_realm: "{{ ipa_realm }}"
+# Full names are required: the role's default is the inventory names
+# ("idm01"), and IPA's web server redirects short names, so the CA download
+# came back empty and enrollment failed (2026-11-01).
+ipaclient_servers: "{{ groups['ipaservers'] | map('regex_replace', '$', '.' ~ ipa_domain) | list }}"
 
 # A one-time password is generated on idm01 for each host, so the admin
 # password is only used there and never sent to the client.
