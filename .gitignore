@@ -23,3 +23,5 @@ secrets.yml
 .vscode/
 .idea/
 .DS_Store
+
+CLAUDE.md
