@@ -230,6 +230,8 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   echo "== Web access through Squid (D-057): standard vs allow-list, per user"
   check "Squid listens on util01 (3128, 3129)"     "ansible util01 -b -m shell -a 'ss -Htln sport = :3128 | grep -q . && ss -Htln sport = :3129 | grep -q .'"
   check "dnf on workstations works through the proxy" "ansible role_workstation -b -m shell -a 'dnf -q makecache --refresh'"
+  check "workstations cannot reach the web directly" "ansible role_workstation -m shell -a '! curl -s -m 5 --noproxy \"*\" -o /dev/null https://example.com'"
+  check "servers still reach the web directly"     "ansible util01 -m shell -a 'curl -s -m 5 -o /dev/null https://example.com'"
   web ahmed       10.0.2.10 https://example.com      200
   web ahmed       10.0.2.10 https://chatgpt.com      200
   web ahmed       10.0.2.10 https://www.youtube.com  403

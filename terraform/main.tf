@@ -200,7 +200,8 @@ locals {
   # forwarding paths gw01 needs for VPN traffic.
   cidr_egress = merge(
     {
-      for r in local.host_roles : "${r}_https_out" => {
+      # Servers only: workstations reach the web through Squid (D-057).
+      for r in setsubtract(local.host_roles, local.workstation_sgs) : "${r}_https_out" => {
         role        = r
         cidr        = "0.0.0.0/0"
         protocol    = "tcp"
@@ -217,8 +218,8 @@ locals {
         description = "ICMP to inside the VPC"
       }
     },
-    # FreeIPA client traffic, to idm01's address only. HTTPS is already
-    # allowed everywhere above, so it is not repeated here.
+    # FreeIPA client traffic, to idm01's address only. Servers already have
+    # HTTPS everywhere above; workstations do not, so they get it here.
     merge([
       for r in setsubtract(local.host_roles, ["idm"]) : {
         for k, p in local.ipa_ports : "${r}_to_idm_${k}" => {
@@ -227,7 +228,7 @@ locals {
           protocol    = p.protocol
           port        = p.port
           description = "FreeIPA ${p.description} to idm01"
-        } if k != "https"
+        } if k != "https" || contains(local.workstation_sgs, r)
       }
     ]...),
     {
