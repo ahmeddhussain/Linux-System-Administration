@@ -1,11 +1,17 @@
 ---
 # FreeIPA (D-046 to D-051): server on idm01, then every other host enrolls.
 # control01 enrolls last, alone, because it runs this playbook.
+#
+# state: present is passed to every role on purpose. The AWS dynamic
+# inventory defines a host variable "state" (the instance state), which the
+# ipaserver/ipaclient roles also use to choose install or UNINSTALL. A role
+# parameter outranks inventory variables.
 
 - name: FreeIPA server
   hosts: ipaservers
   roles:
-    - freeipa.ansible_freeipa.ipaserver
+    - role: freeipa.ansible_freeipa.ipaserver
+      state: present
   post_tasks:
     - name: Confirm every IPA service is running
       ansible.builtin.command: ipactl status
@@ -44,7 +50,8 @@
   hosts: ipaclients:!role_control
   serial: 2
   roles:
-    - freeipa.ansible_freeipa.ipaclient
+    - role: freeipa.ansible_freeipa.ipaclient
+      state: present
   post_tasks: &client_checks
     - name: Confirm SSSD resolves IPA accounts
       ansible.builtin.command: id admin
@@ -54,5 +61,6 @@
 - name: FreeIPA client on control01 (last, alone)
   hosts: ipaclients:&role_control
   roles:
-    - freeipa.ansible_freeipa.ipaclient
+    - role: freeipa.ansible_freeipa.ipaclient
+      state: present
   post_tasks: *client_checks
