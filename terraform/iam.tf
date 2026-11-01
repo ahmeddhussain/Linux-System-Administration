@@ -23,8 +23,10 @@ resource "aws_iam_role" "control_node" {
   name               = "${var.company_name}-control-node"
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
 
-  # On a rename, build the new role before removing the old one so control01
-  # is never left without credentials.
+  # On a rename, build the new role (and its policies and profile, below)
+  # before removing the old one so control01 never loses its permissions.
+  # The inline policies need it too: without it they were deleted first and
+  # the old role had no permissions for a few seconds (2026-11-01 rename).
   lifecycle {
     create_before_destroy = true
   }
@@ -45,6 +47,10 @@ resource "aws_iam_role_policy" "describe_instances" {
   name   = "describe-instances"
   role   = aws_iam_role.control_node.id
   policy = data.aws_iam_policy_document.describe_instances.json
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # Secrets live under /ahmed-infra/ in SSM (created by terraform/persistent).
@@ -74,6 +80,10 @@ resource "aws_iam_role_policy" "read_secrets" {
   name   = "read-secrets"
   role   = aws_iam_role.control_node.id
   policy = data.aws_iam_policy_document.read_secrets.json
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_iam_instance_profile" "control_node" {
