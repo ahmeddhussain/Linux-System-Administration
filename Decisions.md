@@ -603,6 +603,11 @@ Every design choice: what we chose, what else we considered, and why.
   and would still not be a backup. awscli2 and tar come from Red Hat's own
   repositories, so no new third-party repository is added (as in D-033);
   S3 versioning provides the history restic's snapshots would.
+- **As built (2026-11-02):** the first real restore took 1 s, but IPA had
+  been reinstalled, so users and groups had new numeric IDs and the restored
+  files (backed up with --numeric-owner) belonged to the old ones. Backups
+  now store owners by name, and the roles re-own restored homes and logs by
+  name. Stable ID ranges in IPA are listed as a possible improvement.
 
 ## D-057: Web access - forced proxy, policy per workstation and per user
 - **Chosen:** workstations have no direct internet access; their security

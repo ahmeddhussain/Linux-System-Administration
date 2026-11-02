@@ -46,6 +46,15 @@
   register: log_server_modes
   changed_when: "'fixed' in log_server_modes.stdout"
 
+# A restore from a backup made before names were stored brings back the
+# old IPA group number (2026-11-02); give the logs back to the reader group.
+- name: Give every central log back to the reader group
+  ansible.builtin.shell: >-
+    find {{ log_dir }} -mindepth 1 ! -group {{ log_reader_group }}
+    -printf 'fixed %p\n' -exec chgrp -h {{ log_reader_group }} {} +
+  register: log_server_groups
+  changed_when: "'fixed' in log_server_groups.stdout"
+
 - name: Receive logs over TLS and store them per host
   ansible.builtin.template:
     src: 20-ahmed-server.conf.j2

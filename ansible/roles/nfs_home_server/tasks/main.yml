@@ -83,6 +83,18 @@
   loop_control:
     label: "{{ item.item.name }}"
 
+# Same for homes: files restored with old IPA numbers go back to the user
+# whose home they are in.
+- name: Give every file in a home back to its user
+  ansible.builtin.shell: >-
+    find '/export/home/{{ item.name }}' \( ! -user '{{ item.name }}' -o ! -group '{{ item.name }}' \)
+    -printf 'fixed %p\n' -exec chown -h '{{ item.name }}:{{ item.name }}' {} +
+  register: nfs_home_owners
+  changed_when: "'fixed' in nfs_home_owners.stdout"
+  loop: "{{ hostvars[groups['ipaservers'][0]].ipa_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
 - name: Keep every home directory private
   ansible.builtin.file:
     path: "/export/home/{{ item.name }}"

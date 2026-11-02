@@ -3,6 +3,8 @@
 #   ahmed-backup            back up homes and logs to the "latest" object
 #   ahmed-backup restore    restore the latest backup (used on a new volume)
 #   ahmed-backup verify     download the latest backup and read it end to end
+# Owners are stored and restored by name, not number: a rebuilt IPA gives
+# users and groups new numeric IDs (2026-11-02), and names map them back.
 set -euo pipefail
 export AWS_DEFAULT_REGION={{ util_backup_region }}
 account="$(aws sts get-caller-identity --query Account --output text)"
@@ -12,7 +14,7 @@ dirs=({% for v in util_storage_volumes.values() %}{{ v.mount | regex_replace('^/
 case "${1:-backup}" in
   backup)
     start=$(date +%s)
-    tar --create --gzip --acls --xattrs --selinux --numeric-owner -C / "${dirs[@]}" \
+    tar --create --gzip --acls --xattrs --selinux -C / "${dirs[@]}" \
       | aws s3 cp --only-show-errors - "$target"
     logger -t ahmed-backup "backup to $target done in $(( $(date +%s) - start ))s"
     ;;
@@ -23,7 +25,7 @@ case "${1:-backup}" in
     fi
     start=$(date +%s)
     aws s3 cp --only-show-errors "$target" - \
-      | tar --extract --gzip --acls --xattrs --selinux --numeric-owner -C /
+      | tar --extract --gzip --acls --xattrs --selinux -C /
     echo "restored $target in $(( $(date +%s) - start ))s"
     ;;
   verify)
