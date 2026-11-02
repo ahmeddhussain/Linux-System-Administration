@@ -596,4 +596,8 @@ internet policy. Checklist for adding a team (e.g. HR) is in that file.
 - After INC-005: enable MFA and set a new console password for
   `ahmeddhussain`; keep a single long-term key; consider short-lived
   credentials (IAM Identity Center) instead of access keys.
+- **AWS account is on the Free plan** (credits, no card charges): $107.59
+  left on 2026-11-02, plan **expires 2026-12-21** (account closes unless
+  upgraded to paid). Check with `aws freetier get-account-plan-state`.
+  After an upgrade, lab costs hit the card: always `lab.sh down`.
 - Never commit: `*.pem`, `*.key`, `*.tfvars`, vault passwords (see `.gitignore`).

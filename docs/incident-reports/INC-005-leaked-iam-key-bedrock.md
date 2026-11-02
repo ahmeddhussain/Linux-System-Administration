@@ -18,8 +18,11 @@ reduced to the root user and one IAM user with a new key.
 
 ## Impact
 - 10 model calls, 11 model agreements and 1 model-access request, in one
-  region (us-east-1), over about seven minutes. Cost: none visible yet;
-  pay-per-token charges for that volume are small.
+  region (us-east-1), over about seven minutes. **Cost: none.** All 10
+  calls were rejected by Bedrock (ThrottlingException: the account has no
+  capacity for that model); CloudWatch shows throttles and no token usage,
+  and agreements themselves are free. The account is on the AWS Free plan,
+  so usage would have drawn on credits rather than a card in any case.
 - No other activity by the attacker: no servers, functions or other
   resources in any region, and no new users, keys or console logins
   (backdoors) in the 90 days of CloudTrail history.
