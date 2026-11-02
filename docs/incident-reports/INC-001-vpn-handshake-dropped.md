@@ -4,7 +4,7 @@
 |---|---|
 | Date | 2026-10-30 |
 | Severity | Medium: remote VPN access unavailable; admin access unaffected |
-| Status | Mitigated (D-040: WireGuard inside wstunnel on TCP 443); one action open |
+| Status | Resolved (D-040 transport; D-055 client-side tests) |
 | Systems | gw01 (WireGuard gateway), admin client (VMware VM and Windows host) |
 
 ## Summary
@@ -82,4 +82,4 @@ since everything else on the same path was shown to work.
 | Bind wg0 to the trusted zone permanently | Done |
 | Correct the rationale of D-039 | Done |
 | Choose and implement a VPN transport that passes the filter | Done (D-040) |
-| Add a client-side connectivity test to the verification script | Open |
+| Add a client-side connectivity test to the verification script | Done: per-team test peers send real traffic through wstunnel (D-055) |
