@@ -14,7 +14,10 @@ dirs=({% for v in util_storage_volumes.values() %}{{ v.mount | regex_replace('^/
 case "${1:-backup}" in
   backup)
     start=$(date +%s)
-    tar --create --gzip --acls --xattrs --selinux -C / "${dirs[@]}" \
+    # .nfs* files are NFS "silly renames": files deleted while a client still
+    # has them open. They are already gone for the user, and util01 cannot
+    # open them while they are locked (backup failure, 2026-11-02).
+    tar --create --gzip --acls --xattrs --selinux --exclude='.nfs*' -C / "${dirs[@]}" \
       | aws s3 cp --only-show-errors - "$target"
     logger -t ahmed-backup "backup to $target done in $(( $(date +%s) - start ))s"
     ;;
