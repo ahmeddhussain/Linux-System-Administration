@@ -458,7 +458,10 @@ team shares.
 - Last `lab.sh verify` before going down: **134/134** (roadmap items 1-4).
 - This session: first full fresh build; polish round (D-060 stable IDs,
   roles instead of long playbooks, docs as built); roadmap item 4 storage
-  (D-061).
+  (D-061); INC-005 security incident (leaked key of another IAM user,
+  contained, cost $0; account now root + `ahmeddhussain` only, key rotated).
+- **Start of next session:** `eval "$(ssh-agent)"; scripts/lab.sh up`, then
+  roadmap item 5. Ahmed still to do: MFA + new password for `ahmeddhussain`.
 - Fresh-build problems found and fixed in code: INC-004 (workstation dnf
   before Squid existed), stalled Instance Connect session (long jobs now run
   detached on control01), restore with old numeric IDs (backups by name).
