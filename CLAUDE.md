@@ -551,9 +551,8 @@ internet policy. Checklist for adding a team (e.g. HR) is in that file.
 
 ## 12. Open items / cleanup
 
-- `CLAUDE.md`: Ahmed removed it from `.gitignore` in the working copy on
-  2026-11-02 (not committed). Decide whether to commit it (scanned: no
-  secrets, account ID or instance IDs).
+- `CLAUDE.md` is tracked in Git since 2026-11-02 (Ahmed's decision). Keep
+  secrets, the AWS account ID and instance IDs out of it.
 - chrony's AWS time source comes from the image's default config, not from
   the base role (now guarded by a test); consider managing it in `base`.
 - SSHFP records exist, but without DNSSEC OpenSSH only reports a match and
