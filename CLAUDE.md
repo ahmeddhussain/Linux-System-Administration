@@ -445,6 +445,10 @@ team shares.
   0.3 s after systemd reported firewalld started, before it was ready.
   Resolved: base role waits for `firewall-cmd --state` (4729555).
 
+- **INC-005** (2026-11-02) leaked IAM access key of a second admin user used
+  for Bedrock model calls. Contained: key blocked, extra users and roles
+  deleted, lab user's key rotated; no backdoors or other resources. The
+  account now has root (MFA) and `ahmeddhussain` (one key) only.
 ---
 
 ## 10. Current state (2026-11-02, end of session 2)
@@ -589,4 +593,7 @@ internet policy. Checklist for adding a team (e.g. HR) is in that file.
   restic or incremental tar if it grows.
 - No CI or linters by choice (Ahmed, 2026-11-02): the lab is verified by
   `scripts/test-lab.sh` and the Terraform mock tests.
+- After INC-005: enable MFA and set a new console password for
+  `ahmeddhussain`; keep a single long-term key; consider short-lived
+  credentials (IAM Identity Center) instead of access keys.
 - Never commit: `*.pem`, `*.key`, `*.tfvars`, vault passwords (see `.gitignore`).
