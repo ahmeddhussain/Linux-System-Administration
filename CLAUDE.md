@@ -113,8 +113,11 @@ The account plan only allows free-tier-eligible instance types.
 - The local `ansible` account stays everywhere; automation never needs IPA.
 
 ### util01 services (roadmap item 3, D-056 to D-059, built 2026-11-01)
-- **Storage:** LVM `vg_data` on the 20 GB volume: `lv_home` -> `/export/home`
-  (SELinux like /home), `lv_logs` -> `/srv/logs`. Lab layer, so rebuilt every
+- **Storage (D-061):** LVM `vg_data` on two disks (20 + 10 GB): `lv_home`
+  12 G -> `/export/home` (user quotas), `lv_teams` 8 G -> `/export/teams`
+  (project quota per team), `lv_logs` 6 G -> `/srv/logs`. Workstations have
+  a 10 GiB OS disk only. Team shares `/teams/<team>` (2770 + default ACL),
+  `/teams/company` (group employees, sticky). Runbook: `docs/runbooks/storage.md`. Lab layer, so rebuilt every
   session. `ahmed-backup backup|restore|verify` (tar + awscli2) to S3 bucket
   `ahmed-infra-backups-<account>` (persistent layer, versioned, 30-day
   history); daily timer; `lab.sh down` backs up first; a new volume restores
@@ -255,7 +258,7 @@ role, the Ansible Role tag stays `workstation`). VPC default SG emptied. Allowed
 - `playbooks/site.yml` (order matters, INC-004): patch util01; util01
   `base` + `web_proxy`; workstations' dnf proxy (by IP); patch the rest;
   `base` (all); `idm.yml`; util01 `util_storage`, `log_server`,
-  `nfs_home_server`; `log_forwarder` (all); workstations `nfs_home_client`,
+  `nfs_server`, `team_shares`; `log_forwarder` (all); workstations `nfs_client`,
   `proxy_client`; gw01 `wireguard_gateway`; VPN test peer tools (control01).
 - `playbooks/patch.yml`: `serial: 2`; installs dnf-utils; updates all packages;
   checks `systemctl --version`, `ssh -G localhost` and `sshd -t` before any
@@ -384,6 +387,13 @@ role, the Ansible Role tag stays `workstation`). VPC default SG emptied. Allowed
   long jobs detached on control01 and poll.
 - IPA reinstalls give new numeric IDs; anything restored by number breaks.
   Store names (tar without --numeric-owner).
+- NFS clients rename a file deleted while open to `.nfsXXXX`; the server
+  cannot open it while locked, so backups exclude `.nfs*`.
+- NFSv4 clients do not show POSIX ACLs (`getfacl`); check ACLs on the server.
+- A multi-line Jinja `set_fact` must trim whitespace (`{%- -%}`), or the
+  "list" is a string and `loop` refuses it.
+- An EBS root volume cannot shrink: changing `root_volume_size` down needs
+  `-replace`; a rebuilt host must be released in IPA before re-enrolling.
 - The login banner has no trailing newline; filtering it with grep drops the
   next output line. Use `ssh -o LogLevel=error`.
 
@@ -415,7 +425,8 @@ rebuilt from code each session · D-049 IPA secrets in Vault · D-050
 ansible-freeipa · D-051 IPA network rules, all hosts enroll · D-052 per-team
 VPN policy · D-053 ops reach servers · D-054 gw01 admin SSH only · D-055 VPN
 test peers · D-056 util01 data + S3 backups · D-057 forced web proxy · D-058
-NFS homes · D-059 central logs over TLS · D-060 stable IPA IDs.
+NFS homes · D-059 central logs over TLS · D-060 stable IPA IDs · D-061 storage, quotas,
+team shares.
 
 ---
 
@@ -436,11 +447,14 @@ NFS homes · D-059 central logs over TLS · D-060 stable IPA IDs.
 
 ---
 
-## 10. Current state (2026-11-02, session 2)
+## 10. Current state (2026-11-02, end of session 2)
 
-- Lab is **up**, built from nothing this session (first full fresh build):
-  `lab.sh verify` **122/122**; `site.yml` rerun idempotent; first real
-  restore of util01's backup: 1 s.
+- Lab is **down** (`lab.sh down` at the end of the session; util01 backed
+  up to S3 first). Persistent and bootstrap layers untouched.
+- Last `lab.sh verify` before going down: **134/134** (roadmap items 1-4).
+- This session: first full fresh build; polish round (D-060 stable IDs,
+  roles instead of long playbooks, docs as built); roadmap item 4 storage
+  (D-061).
 - Fresh-build problems found and fixed in code: INC-004 (workstation dnf
   before Squid existed), stalled Instance Connect session (long jobs now run
   detached on control01), restore with old numeric IDs (backups by name).
@@ -520,12 +534,18 @@ NFS conf.d directory, 0755 homes, rsyslog UMask (logs unreadable for the
 security team), missing PTR records (log directories named by IP).
 **Verified: `lab.sh verify` 121/121.**
 
+### Done: Storage (roadmap item 4, 2026-11-02)
+Ahmed's choices: team shares on NFS from util01; workstations hold no data
+(minimal OS disk), util01 gets the space; quotas per user and per team;
+team-only shares plus a company share. D-061. Applied on the live lab: second
+disk added to vg_data, lv_home grown online, quotas switched on by remount,
+both workstations replaced (10 GiB) and re-enrolled (new: release the old IPA
+entry first). Problems fixed: share list rendered as a string; ACL test ran
+over NFSv4 (POSIX ACLs are only visible on util01).
+
 ### Next
-1. Full rebuild test (`lab.sh down`, `lab.sh up`): IPA, VPN policy, util01
-   (first real **restore** of the S3 backup, measure its time) from scratch.
-   Never done yet; most valuable next step.
-2. Roadmap item 4: storage (quotas on homes, extra volumes), permissions and
-   SELinux for shared team directories.
+Roadmap item 5: patching cadence, logging/audit, backup/restore drills
+(measured RTO), OpenSCAP compliance, app01, incident drills.
 
 ---
 
@@ -537,7 +557,7 @@ security team), missing PTR records (log directories named by IP).
 2. **Done 2026-11-01.** Per-team VPN policy on gw01 (each team range reaches only its workstations).
 3. **Done 2026-11-02.** util01: Squid with per-team ACLs + workstation egress forced through the
    proxy; NFS home directories + autofs; central rsyslog; backups.
-4. Storage (LVM, quotas, extra volumes), permissions/SELinux for shared team dirs.
+4. **Done 2026-11-02.** Storage (LVM, quotas, extra volumes), permissions/SELinux for shared team dirs.
 5. Patching cadence, logging/audit, backup/restore drills (measured RTO),
    OpenSCAP compliance, app01 (web/db tier), incident drills.
 6. Possible upgrades: golden image (Image Builder/Packer) to shorten rebuilds,
