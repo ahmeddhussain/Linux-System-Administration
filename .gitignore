@@ -24,7 +24,7 @@ secrets.yml
 .idea/
 .DS_Store
 
-CLAUDE.md
+
 .claude/
 
 # Lock files created by running module tests locally
