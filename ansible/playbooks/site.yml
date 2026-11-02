@@ -1,6 +1,31 @@
 ---
-- name: Patch every host to the same level first
+# Workstations have no direct internet (D-057); their only way to package
+# repositories is Squid on util01. So on a new lab util01 is patched and gets
+# Squid first, then workstations are pointed at it, then everything else is
+# patched (INC-004: a fresh build hung on the first dnf task).
+- name: Patch util01 first
   ansible.builtin.import_playbook: patch.yml
+  vars:
+    patch_hosts: role_util
+
+- name: util01 baseline and web proxy, before any workstation needs packages
+  hosts: role_util
+  roles:
+    - base
+    - web_proxy
+
+- name: Workstations send dnf through the proxy from the start
+  hosts: role_workstation
+  tasks:
+    - name: dnf proxy setting
+      ansible.builtin.include_role:
+        name: proxy_client
+        tasks_from: dnf
+
+- name: Patch every other host to the same level
+  ansible.builtin.import_playbook: patch.yml
+  vars:
+    patch_hosts: "all:!role_util"
 
 - name: Baseline configuration for every host
   hosts: all

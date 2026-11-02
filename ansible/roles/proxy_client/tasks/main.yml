@@ -2,11 +2,7 @@
 # Workstations use Squid on util01 for all web access (D-057).
 
 - name: Send dnf through the proxy
-  ansible.builtin.lineinfile:
-    path: /etc/dnf/dnf.conf
-    regexp: '^proxy\s*='
-    line: "proxy=http://{{ web_proxy_host }}:{{ web_proxy_ports.standard }}"
-    insertafter: '^\[main\]'
+  ansible.builtin.include_tasks: dnf.yml
 
 - name: Give every login shell its team's proxy port
   ansible.builtin.template:

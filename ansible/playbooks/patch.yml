@@ -3,8 +3,10 @@
 # is required. Hosts are patched two at a time so no machine, including the
 # control node, is overloaded. Used for routine patching and as the first
 # step of site.yml for new or rebuilt hosts.
+# site.yml patches util01 first (patch_hosts), because workstations can
+# reach package repositories only through Squid on util01 (INC-004).
 - name: Patch all hosts
-  hosts: all
+  hosts: "{{ patch_hosts | default('all') }}"
   serial: 2
   tasks:
     - name: Install the reboot-check tool

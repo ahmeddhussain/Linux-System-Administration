@@ -1,0 +1,10 @@
+---
+# dnf on workstations goes through Squid (D-057). By IP address: on a new
+# workstation this runs before IPA enrollment, when util01's name cannot be
+# resolved yet (INC-004).
+- name: Send dnf through the proxy
+  ansible.builtin.lineinfile:
+    path: /etc/dnf/dnf.conf
+    regexp: '^proxy\s*='
+    line: "proxy=http://{{ hostvars[web_proxy_host.split('.')[0]].ansible_host }}:{{ web_proxy_ports.standard }}"
+    insertafter: '^\[main\]'
