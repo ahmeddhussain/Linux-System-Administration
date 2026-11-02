@@ -281,7 +281,10 @@ sys.exit(1 if bad else 0)'"
   remote_check "home and team quotas are enforced"  util01 'xfs_quota -x -c "state -u" /export/home | grep -q "Enforcement: ON" && xfs_quota -x -c "state -p" /export/teams | grep -q "Enforcement: ON"'
   as_check "contractor1 cannot exceed a 50 MB home quota" contractor1 10.0.2.10 '! dd if=/dev/zero of=~/quota-test bs=1M count=60 status=none conv=fsync; rm -f ~/quota-test'
   as_check "ahmed writes in /teams/dev ..."          ahmed 10.0.2.10 'head -c 5M /dev/zero > /teams/dev/quota-check && test "$(stat -c %G /teams/dev/quota-check)" = dev'
-  as_check "... new files stay writable by the team" ahmed 10.0.2.10 'getfacl -p /teams/dev/quota-check 2>/dev/null | grep -q "^group:dev:rw"'
+  # The ACL lives on util01's filesystem; NFSv4 does not show POSIX ACLs to
+  # the client, so check it there. "mask::rw" = the team can write it even
+  # though the creator's umask (022) would have made it read-only.
+  remote_check "... new files stay writable by the team (default ACL)" util01 'getfacl -p /export/teams/dev/quota-check | grep -q "^group:dev:rwx" && getfacl -p /export/teams/dev/quota-check | grep -q "^mask::rw"'
   remote_check "... and count against dev's project quota" util01 'test "$(xfs_quota -x -c "report -p -N -b" /export/teams | awk "\$1 == \"dev\" {print \$2}")" -ge 5120'
   as_check "ops cannot enter dev's directory"        sara  10.0.2.11 '! ls /teams/dev'
   as_check "sara writes in the company share ..."    sara  10.0.2.11 'echo hi > /teams/company/from-sara'
