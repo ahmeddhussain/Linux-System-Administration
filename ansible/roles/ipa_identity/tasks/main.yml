@@ -1,0 +1,135 @@
+---
+# Identity data in IPA (D-048, D-058, D-060): everything comes from
+# inventory/group_vars/role_idm/identity.yml. Run on the IPA server after
+# enrollment, because host groups can only contain enrolled hosts.
+
+- name: Team groups
+  freeipa.ansible_freeipa.ipagroup:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    name: "{{ item.name }}"
+    gid: "{{ item.gid }}"
+    description: "{{ item.description }}"
+    state: present
+  loop: "{{ ipa_groups }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Default home directory base for new users (D-058)
+  freeipa.ansible_freeipa.ipaconfig:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    homedirectory: "{{ ipa_homes_root }}"
+
+- name: Users (SSH keys, home directory, expiry)
+  freeipa.ansible_freeipa.ipauser:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    name: "{{ item.name }}"
+    first: "{{ item.first }}"
+    last: "{{ item.last }}"
+    uid: "{{ item.uid }}"
+    gid: "{{ item.uid }}"
+    homedir: "{{ ipa_homes_root }}/{{ item.name }}"
+    sshpubkey: "{{ item.sshpubkey }}"
+    principalexpiration: "{{ item.principalexpiration | default(omit) }}"
+    update_password: on_create
+    state: present
+  loop: "{{ ipa_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Group membership (from each user's groups)
+  freeipa.ansible_freeipa.ipagroup:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    name: "{{ item }}"
+    user: "{{ ipa_users | selectattr('groups', 'contains', item) | map(attribute='name') | list }}"
+    action: member
+    state: present
+  loop: "{{ ipa_users | map(attribute='groups') | flatten | unique | list }}"
+
+- name: Host groups
+  freeipa.ansible_freeipa.ipahostgroup:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    name: "{{ item.name }}"
+    host: "{{ item.hosts }}"
+    state: present
+  loop: "{{ ipa_hostgroups }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Login rules (HBAC)
+  freeipa.ansible_freeipa.ipahbacrule:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    name: "{{ item.name }}"
+    description: "{{ item.description }}"
+    group: "{{ item.group }}"
+    hostgroup: "{{ item.hostgroup | default(omit) }}"
+    hostcategory: "{{ item.hostcategory | default(omit) }}"
+    servicecategory: all
+    state: present
+  loop: "{{ ipa_hbacrules }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# Reverse DNS for every host. Enrollment created only the forward
+# records; rsyslog names log directories by the sender's PTR (D-059).
+- name: Reverse DNS (PTR) record for every host
+  vars:
+    ip: "{{ hostvars[item].ansible_host }}"
+  freeipa.ansible_freeipa.ipadnsrecord:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    zone_name: "{{ ip.split('.')[2] }}.{{ ip.split('.')[1] }}.{{ ip.split('.')[0] }}.in-addr.arpa."
+    name: "{{ ip.split('.')[3] }}"
+    record_type: PTR
+    record_value: "{{ item }}.{{ ipa_domain }}."
+    state: present
+  loop: "{{ groups['all'] | sort }}"
+
+# Automount (D-058): /users/<name> comes from util01 on the workstations.
+- name: Automount map for home directories
+  freeipa.ansible_freeipa.ipaautomountmap:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    location: "{{ ipa_automount_location }}"
+    name: auto.home
+    desc: "Home directories of IPA users on util01 (D-058)"
+    state: present
+
+- name: Mount the map at the home directory base
+  freeipa.ansible_freeipa.ipaautomountkey:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    location: "{{ ipa_automount_location }}"
+    mapname: auto.master
+    key: "{{ ipa_homes_root }}"
+    info: auto.home
+    state: present
+
+- name: Every user's home comes from util01 over NFSv4
+  freeipa.ansible_freeipa.ipaautomountkey:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    location: "{{ ipa_automount_location }}"
+    mapname: auto.home
+    key: "*"
+    info: "-fstype=nfs4,rw,sec=sys {{ ipa_homes_nfs_export }}/&"
+    state: present
+
+- name: Commands used by restricted sudo rules
+  freeipa.ansible_freeipa.ipasudocmd:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    name: "{{ ipa_sudocmds }}"
+    state: present
+
+- name: Sudo rules (no password prompt; logins are key-only)
+  freeipa.ansible_freeipa.ipasudorule:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    name: "{{ item.name }}"
+    description: "{{ item.description }}"
+    group: "{{ item.group }}"
+    hostgroup: "{{ item.hostgroup | default(omit) }}"
+    hostcategory: "{{ item.hostcategory | default(omit) }}"
+    cmdcategory: "{{ item.cmdcategory | default(omit) }}"
+    runasusercategory: "{{ item.runasusercategory | default(omit) }}"
+    runasgroupcategory: "{{ item.runasgroupcategory | default(omit) }}"
+    allow_sudocmd: "{{ item.allow_sudocmd | default(omit) }}"
+    sudooption: ["!authenticate"]
+    state: present
+  loop: "{{ ipa_sudorules }}"
+  loop_control:
+    label: "{{ item.name }}"

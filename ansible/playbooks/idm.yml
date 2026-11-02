@@ -1,334 +1,46 @@
 ---
-# FreeIPA (D-046 to D-051): server on idm01, then every other host enrolls.
+# FreeIPA (D-046 to D-051): server on idm01, then every other host enrolls,
+# then the identity data, then per-client settings that follow it.
 # control01 enrolls last, alone, because it runs this playbook.
 #
-# state: present is passed to every role on purpose. The AWS dynamic
-# inventory defines a host variable "state" (the instance state), which the
-# ipaserver/ipaclient roles also use to choose install or UNINSTALL. A role
-# parameter outranks inventory variables.
+# state: present is passed to the collection's roles on purpose. The AWS
+# dynamic inventory defines a host variable "state" (the instance state),
+# which the ipaserver/ipaclient roles also use to choose install or
+# UNINSTALL. A role parameter outranks inventory variables.
 
 - name: FreeIPA server
   hosts: ipaservers
   roles:
     - role: freeipa.ansible_freeipa.ipaserver
       state: present
-  post_tasks:
-    - name: Confirm every IPA service is running
-      ansible.builtin.command: ipactl status
-      changed_when: false
-      check_mode: false
-
-    - name: Confirm the admin account can get a Kerberos ticket and use the API
-      ansible.builtin.shell: |
-        set -o pipefail
-        printf '%s' "$IPA_PW" | kinit admin > /dev/null
-        ipa ping
-        kdestroy
-      args:
-        executable: /bin/bash
-      environment:
-        IPA_PW: "{{ ipaadmin_password }}"
-      changed_when: false
-      check_mode: false
-      no_log: true
-
-    - name: Confirm IPA DNS answers for its own domain
-      ansible.builtin.command: "dig +short {{ inventory_hostname }}.{{ ipa_domain }} @127.0.0.1"
-      register: idm_dns_self
-      changed_when: false
-      check_mode: false
-      failed_when: idm_dns_self.stdout != ansible_default_ipv4.address
-
-    - name: Confirm IPA DNS forwards other names to the VPC resolver
-      ansible.builtin.command: dig +short cdn.redhat.com @127.0.0.1
-      register: idm_dns_forward
-      changed_when: false
-      check_mode: false
-      failed_when: idm_dns_forward.stdout | length == 0
+    - ipa_server_verify
 
 - name: FreeIPA clients (all hosts except idm01 and control01)
   hosts: ipaclients:!role_control
   serial: 2
-  pre_tasks: &client_prepare
-    # A failed enrollment can leave an empty /etc/ipa/ca.crt behind. Discovery
-    # then uses it for LDAP TLS and every retry fails with "Failed to verify
-    # that ... is an IPA Server" (2026-11-01). Remove it only if it is empty
-    # and the host is not enrolled.
-    - name: Check for a host keytab (enrolled hosts have one)
-      ansible.builtin.stat:
-        path: /etc/krb5.keytab
-      register: ipa_client_keytab
-
-    - name: Check the CA file
-      ansible.builtin.stat:
-        path: /etc/ipa/ca.crt
-      register: ipa_client_ca
-
-    - name: Remove an empty CA file left by a failed enrollment
-      ansible.builtin.file:
-        path: /etc/ipa/ca.crt
-        state: absent
-      when:
-        - not ipa_client_keytab.stat.exists
-        - ipa_client_ca.stat.exists
-        - ipa_client_ca.stat.size == 0
-
-    # The ipaclient role would create the OTP itself, but it delegates to the
-    # server's DNS name, which is not an inventory host here (inventory names
-    # are short) and cannot be resolved before enrollment. So the OTP is made
-    # here, on idm01 through its inventory name. Defining ipaclient_otp also
-    # switches the role to OTP mode without delegation.
-    - name: Generate a one-time enrollment password
-      ansible.builtin.set_fact:
-        ipaclient_otp: "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_letters', 'digits'], length=32) }}"
-      when: not ipa_client_keytab.stat.exists
-      no_log: true
-
-    - name: Register the host in IPA with that password and its DNS record
-      freeipa.ansible_freeipa.ipahost:
-        ipaadmin_password: "{{ hostvars[groups['ipaservers'][0]].ipaadmin_password }}"
-        name: "{{ inventory_hostname }}.{{ ipa_domain }}"
-        ip_address: "{{ ansible_default_ipv4.address }}"
-        password: "{{ ipaclient_otp }}"
-        state: present
-      delegate_to: "{{ groups['ipaservers'][0] }}"
-      when: not ipa_client_keytab.stat.exists
-      no_log: true
   roles:
+    - ipa_client_prepare
     - role: freeipa.ansible_freeipa.ipaclient
       state: present
-  post_tasks: &client_checks
-    - name: Confirm SSSD resolves IPA accounts
-      ansible.builtin.command: id admin
-      changed_when: false
-      check_mode: false
+    - ipa_client_health
 
 - name: FreeIPA client on control01 (last, alone)
   hosts: ipaclients:&role_control
-  pre_tasks: *client_prepare
   roles:
+    - ipa_client_prepare
     - role: freeipa.ansible_freeipa.ipaclient
       state: present
-  post_tasks: *client_checks
+    - ipa_client_health
 
-# Identity data (D-048): everything comes from
-# inventory/group_vars/role_idm/identity.yml. Runs after enrollment because
-# host groups can only contain enrolled hosts.
 - name: FreeIPA identity data (groups, users, host groups, HBAC, sudo)
   hosts: ipaservers
   gather_facts: false
-  tasks:
-    - name: Team groups
-      freeipa.ansible_freeipa.ipagroup:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        name: "{{ item.name }}"
-        description: "{{ item.description }}"
-        state: present
-      loop: "{{ ipa_groups }}"
-      loop_control:
-        label: "{{ item.name }}"
+  roles:
+    - ipa_identity
 
-    - name: Default home directory base for new users (D-058)
-      freeipa.ansible_freeipa.ipaconfig:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        homedirectory: "{{ ipa_homes_root }}"
-
-    - name: Users (SSH keys, home directory, expiry)
-      freeipa.ansible_freeipa.ipauser:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        name: "{{ item.name }}"
-        first: "{{ item.first }}"
-        last: "{{ item.last }}"
-        homedir: "{{ ipa_homes_root }}/{{ item.name }}"
-        sshpubkey: "{{ item.sshpubkey }}"
-        principalexpiration: "{{ item.principalexpiration | default(omit) }}"
-        update_password: on_create
-        state: present
-      loop: "{{ ipa_users }}"
-      loop_control:
-        label: "{{ item.name }}"
-
-    - name: Group membership (from each user's groups)
-      freeipa.ansible_freeipa.ipagroup:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        name: "{{ item }}"
-        user: "{{ ipa_users | selectattr('groups', 'contains', item) | map(attribute='name') | list }}"
-        action: member
-        state: present
-      loop: "{{ ipa_users | map(attribute='groups') | flatten | unique | list }}"
-
-    - name: Host groups
-      freeipa.ansible_freeipa.ipahostgroup:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        name: "{{ item.name }}"
-        host: "{{ item.hosts }}"
-        state: present
-      loop: "{{ ipa_hostgroups }}"
-      loop_control:
-        label: "{{ item.name }}"
-
-    - name: Login rules (HBAC)
-      freeipa.ansible_freeipa.ipahbacrule:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        name: "{{ item.name }}"
-        description: "{{ item.description }}"
-        group: "{{ item.group }}"
-        hostgroup: "{{ item.hostgroup | default(omit) }}"
-        hostcategory: "{{ item.hostcategory | default(omit) }}"
-        servicecategory: all
-        state: present
-      loop: "{{ ipa_hbacrules }}"
-      loop_control:
-        label: "{{ item.name }}"
-
-    # Reverse DNS for every host. Enrollment created only the forward
-    # records; rsyslog names log directories by the sender's PTR (D-059).
-    - name: Reverse DNS (PTR) record for every host
-      vars:
-        ip: "{{ hostvars[item].ansible_host }}"
-      freeipa.ansible_freeipa.ipadnsrecord:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        zone_name: "{{ ip.split('.')[2] }}.{{ ip.split('.')[1] }}.{{ ip.split('.')[0] }}.in-addr.arpa."
-        name: "{{ ip.split('.')[3] }}"
-        record_type: PTR
-        record_value: "{{ item }}.{{ ipa_domain }}."
-        state: present
-      loop: "{{ groups['all'] | sort }}"
-
-    # Automount (D-058): /users/<name> comes from util01 on the workstations.
-    - name: Automount map for home directories
-      freeipa.ansible_freeipa.ipaautomountmap:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        location: "{{ ipa_automount_location }}"
-        name: auto.home
-        desc: "Home directories of IPA users on util01 (D-058)"
-        state: present
-
-    - name: Mount the map at the home directory base
-      freeipa.ansible_freeipa.ipaautomountkey:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        location: "{{ ipa_automount_location }}"
-        mapname: auto.master
-        key: "{{ ipa_homes_root }}"
-        info: auto.home
-        state: present
-
-    - name: Every user's home comes from util01 over NFSv4
-      freeipa.ansible_freeipa.ipaautomountkey:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        location: "{{ ipa_automount_location }}"
-        mapname: auto.home
-        key: "*"
-        info: "-fstype=nfs4,rw,sec=sys {{ ipa_homes_nfs_export }}/&"
-        state: present
-
-    - name: Commands used by restricted sudo rules
-      freeipa.ansible_freeipa.ipasudocmd:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        name: "{{ ipa_sudocmds }}"
-        state: present
-
-    - name: Sudo rules (no password prompt; logins are key-only)
-      freeipa.ansible_freeipa.ipasudorule:
-        ipaadmin_password: "{{ ipaadmin_password }}"
-        name: "{{ item.name }}"
-        description: "{{ item.description }}"
-        group: "{{ item.group }}"
-        hostgroup: "{{ item.hostgroup | default(omit) }}"
-        hostcategory: "{{ item.hostcategory | default(omit) }}"
-        cmdcategory: "{{ item.cmdcategory | default(omit) }}"
-        runasusercategory: "{{ item.runasusercategory | default(omit) }}"
-        runasgroupcategory: "{{ item.runasgroupcategory | default(omit) }}"
-        allow_sudocmd: "{{ item.allow_sudocmd | default(omit) }}"
-        sudooption: ["!authenticate"]
-        state: present
-      loop: "{{ ipa_sudorules }}"
-      loop_control:
-        label: "{{ item.name }}"
-
-# SSSD downloads sudo rules on its first start and then trusts that result
-# until a periodic refresh; invalidating the cache does not fetch rules it
-# never had. Clients enrolled before the identity data existed therefore saw
-# no sudo rules at all (2026-11-01). Each client stores a checksum of the
-# identity data; when it changes, SSSD's cache is reset, which forces a full
-# download. Unchanged data means no reset (reruns stay changed=0).
-- name: Refresh SSSD caches when the identity data changes
+- name: IPA client health and settings that follow the identity data
   hosts: ipaclients
   serial: 3
-  tasks:
-    # After losing idm01, SSSD can stay offline for minutes even once the
-    # network is back: it backs off, and its DNS library (c-ares) then
-    # prefers the VPC resolver, which answers "not found" for ahmed.internal
-    # (seen 2026-11-01 after a security group change; SIGUSR2 alone did not
-    # help within 30 s). A restart resets both.
-    - name: Check whether SSSD is online
-      ansible.builtin.command: "sssctl domain-status {{ ipa_domain }} -o"
-      register: ipa_sssd_status
-      changed_when: false
-      check_mode: false
-
-    - name: Restart an offline SSSD
-      ansible.builtin.systemd_service:
-        name: sssd
-        state: restarted
-      when: "'Online status: Online' not in ipa_sssd_status.stdout"
-
-    - name: Wait until SSSD is online
-      ansible.builtin.command: "sssctl domain-status {{ ipa_domain }} -o"
-      register: ipa_sssd_online
-      until: "'Online status: Online' in ipa_sssd_online.stdout"
-      retries: 30
-      delay: 2
-      changed_when: false
-      check_mode: false
-
-    # IPA homes live under /users (D-058): label it like /home, and create it
-    # so servers can make local homes there on first login.
-    - name: Label the IPA home directory base like /home (SELinux)
-      ansible.builtin.shell: >-
-        semanage fcontext -l -C | grep -qE '^{{ ipa_homes_root }} = /home$' ||
-        { semanage fcontext -a -e /home {{ ipa_homes_root }} && echo added; }
-      vars:
-        ipa_homes_root: "{{ hostvars[groups['ipaservers'][0]].ipa_homes_root }}"
-      register: ipa_homes_fcontext
-      changed_when: "'added' in ipa_homes_fcontext.stdout"
-
-    - name: Create the IPA home directory base
-      ansible.builtin.file:
-        path: "{{ hostvars[groups['ipaservers'][0]].ipa_homes_root }}"
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-        setype: home_root_t
-      when: "'role_workstation' not in group_names"
-
-    - name: Record the checksum of the identity data on this client
-      ansible.builtin.copy:
-        dest: /var/lib/sss/ahmed-identity.sha256
-        content: >-
-          {{ ['ipa_users', 'ipa_groups', 'ipa_hostgroups', 'ipa_hbacrules', 'ipa_sudocmds', 'ipa_sudorules', 'ipa_homes_root']
-             | map('extract', hostvars[groups['ipaservers'][0]]) | list | to_json | hash('sha256') }}
-        owner: root
-        group: root
-        mode: "0644"
-      register: ipa_identity_checksum
-
-    - name: Reset the SSSD cache so new rules are downloaded
-      ansible.builtin.shell: |
-        set -e
-        systemctl stop sssd
-        rm -f /var/lib/sss/db/cache_* /var/lib/sss/db/timestamps_*
-        systemctl start sssd
-      args:
-        executable: /bin/bash
-      when: ipa_identity_checksum.changed
-
-    - name: Wait until SSSD answers again
-      ansible.builtin.command: id admin
-      register: ipa_sssd_ready
-      until: ipa_sssd_ready.rc == 0
-      retries: 15
-      delay: 2
-      changed_when: false
-      when: ipa_identity_checksum.changed
+  roles:
+    - ipa_client_health
+    - ipa_client_config

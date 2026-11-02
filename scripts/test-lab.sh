@@ -207,6 +207,12 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   check "names outside ahmed.internal still resolve" "ansible ipaclients -m shell -a 'getent hosts cdn.redhat.com'"
   check "every client is enrolled (host keytab)"   "ansible ipaclients -b -m shell -a 'klist -k /etc/krb5.keytab | grep -q host/'"
   check "SSSD resolves IPA accounts on every client" "ansible ipaclients -m shell -a 'id admin'"
+  check "IPA user and group IDs match identity.yml (D-060)" "python3 -c '
+import grp, pwd, sys, yaml
+d = yaml.safe_load(open(\"inventory/group_vars/role_idm/identity.yml\"))
+bad = [u[\"name\"] for u in d[\"ipa_users\"] if pwd.getpwnam(u[\"name\"]).pw_uid != u[\"uid\"]]
+bad += [g[\"name\"] for g in d[\"ipa_groups\"] if grp.getgrnam(g[\"name\"]).gr_gid != g[\"gid\"]]
+sys.exit(1 if bad else 0)'"
   check "SSSD is online on every client"           "ansible ipaclients -b -m shell -a 'sssctl domain-status ahmed.internal -o | grep -q \"Online status: Online\"'"
   check "SSHFP records published (ws-dev01)"       "ansible ws-dev01 -m shell -a 'dig +short SSHFP ws-dev01.ahmed.internal | grep -q .'"
   check "no default allow_all login rule"          "ansible idm01 -b -m shell -a 'export KRB5CCNAME=\$(mktemp -u); kinit -k && ! ipa hbacrule-show allow_all; rc=\$?; kdestroy; exit \$rc'"

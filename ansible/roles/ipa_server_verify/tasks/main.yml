@@ -1,0 +1,36 @@
+---
+# Checks after the IPA server install (D-046, D-047): services, admin
+# Kerberos + API, DNS for the domain and forwarding.
+
+- name: Confirm every IPA service is running
+  ansible.builtin.command: ipactl status
+  changed_when: false
+  check_mode: false
+
+- name: Confirm the admin account can get a Kerberos ticket and use the API
+  ansible.builtin.shell: |
+    set -o pipefail
+    printf '%s' "$IPA_PW" | kinit admin > /dev/null
+    ipa ping
+    kdestroy
+  args:
+    executable: /bin/bash
+  environment:
+    IPA_PW: "{{ ipaadmin_password }}"
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Confirm IPA DNS answers for its own domain
+  ansible.builtin.command: "dig +short {{ inventory_hostname }}.{{ ipa_domain }} @127.0.0.1"
+  register: idm_dns_self
+  changed_when: false
+  check_mode: false
+  failed_when: idm_dns_self.stdout != ansible_default_ipv4.address
+
+- name: Confirm IPA DNS forwards other names to the VPC resolver
+  ansible.builtin.command: dig +short cdn.redhat.com @127.0.0.1
+  register: idm_dns_forward
+  changed_when: false
+  check_mode: false
+  failed_when: idm_dns_forward.stdout | length == 0

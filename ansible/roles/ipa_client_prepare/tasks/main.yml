@@ -1,0 +1,47 @@
+---
+# Before enrolling a client (D-050 as built).
+
+# A failed enrollment can leave an empty /etc/ipa/ca.crt behind. Discovery
+# then uses it for LDAP TLS and every retry fails with "Failed to verify
+# that ... is an IPA Server" (2026-11-01). Remove it only if it is empty
+# and the host is not enrolled.
+- name: Check for a host keytab (enrolled hosts have one)
+  ansible.builtin.stat:
+    path: /etc/krb5.keytab
+  register: ipa_client_keytab
+
+- name: Check the CA file
+  ansible.builtin.stat:
+    path: /etc/ipa/ca.crt
+  register: ipa_client_ca
+
+- name: Remove an empty CA file left by a failed enrollment
+  ansible.builtin.file:
+    path: /etc/ipa/ca.crt
+    state: absent
+  when:
+    - not ipa_client_keytab.stat.exists
+    - ipa_client_ca.stat.exists
+    - ipa_client_ca.stat.size == 0
+
+# The ipaclient role would create the OTP itself, but it delegates to the
+# server's DNS name, which is not an inventory host here (inventory names
+# are short) and cannot be resolved before enrollment. So the OTP is made
+# here, on idm01 through its inventory name. Defining ipaclient_otp also
+# switches the role to OTP mode without delegation.
+- name: Generate a one-time enrollment password
+  ansible.builtin.set_fact:
+    ipaclient_otp: "{{ lookup('ansible.builtin.password', '/dev/null', chars=['ascii_letters', 'digits'], length=32) }}"
+  when: not ipa_client_keytab.stat.exists
+  no_log: true
+
+- name: Register the host in IPA with that password and its DNS record
+  freeipa.ansible_freeipa.ipahost:
+    ipaadmin_password: "{{ hostvars[groups['ipaservers'][0]].ipaadmin_password }}"
+    name: "{{ inventory_hostname }}.{{ ipa_domain }}"
+    ip_address: "{{ ansible_default_ipv4.address }}"
+    password: "{{ ipaclient_otp }}"
+    state: present
+  delegate_to: "{{ groups['ipaservers'][0] }}"
+  when: not ipa_client_keytab.stat.exists
+  no_log: true

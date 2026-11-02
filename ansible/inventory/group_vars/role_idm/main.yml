@@ -6,6 +6,10 @@ ipaadmin_password: "{{ vault_ipaadmin_password }}"
 ipadm_password: "{{ vault_ipadm_password }}"
 
 ipaserver_domain: "{{ ipa_domain }}"
+# Fixed ID range (D-060). It is the range this IPA first chose at random;
+# keeping it means the explicit IDs in identity.yml stay valid.
+ipaserver_idstart: 455400000
+ipaserver_idmax: 455599999
 ipaserver_realm: "{{ ipa_realm }}"
 # The installer adds this address to /etc/hosts, so idm01 can resolve itself
 # before its own DNS exists.

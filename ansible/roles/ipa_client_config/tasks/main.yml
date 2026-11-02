@@ -1,0 +1,60 @@
+---
+# Per-client IPA settings that follow the identity data.
+#
+# SSSD downloads sudo rules on its first start and then trusts that result
+# until a periodic refresh; invalidating the cache does not fetch rules it
+# never had. Clients enrolled before the identity data existed therefore saw
+# no sudo rules at all (2026-11-01). Each client stores a checksum of the
+# identity data; when it changes, SSSD's cache is reset, which forces a full
+# download. Unchanged data means no reset (reruns stay changed=0).
+
+# IPA homes live under /users (D-058): label it like /home, and create it
+# so servers can make local homes there on first login.
+- name: Label the IPA home directory base like /home (SELinux)
+  ansible.builtin.shell: >-
+    semanage fcontext -l -C | grep -qE '^{{ ipa_homes_root }} = /home$' ||
+    { semanage fcontext -a -e /home {{ ipa_homes_root }} && echo added; }
+  vars:
+    ipa_homes_root: "{{ hostvars[groups['ipaservers'][0]].ipa_homes_root }}"
+  register: ipa_homes_fcontext
+  changed_when: "'added' in ipa_homes_fcontext.stdout"
+
+- name: Create the IPA home directory base
+  ansible.builtin.file:
+    path: "{{ hostvars[groups['ipaservers'][0]].ipa_homes_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+    setype: home_root_t
+  when: "'role_workstation' not in group_names"
+
+- name: Record the checksum of the identity data on this client
+  ansible.builtin.copy:
+    dest: /var/lib/sss/ahmed-identity.sha256
+    content: >-
+      {{ ['ipa_users', 'ipa_groups', 'ipa_hostgroups', 'ipa_hbacrules', 'ipa_sudocmds', 'ipa_sudorules', 'ipa_homes_root']
+         | map('extract', hostvars[groups['ipaservers'][0]]) | list | to_json | hash('sha256') }}
+    owner: root
+    group: root
+    mode: "0644"
+  register: ipa_identity_checksum
+
+- name: Reset the SSSD cache so new rules are downloaded
+  ansible.builtin.shell: |
+    set -e
+    systemctl stop sssd
+    rm -f /var/lib/sss/db/cache_* /var/lib/sss/db/timestamps_*
+    systemctl start sssd
+  args:
+    executable: /bin/bash
+  when: ipa_identity_checksum.changed
+
+- name: Wait until SSSD answers again
+  ansible.builtin.command: id admin
+  register: ipa_sssd_ready
+  until: ipa_sssd_ready.rc == 0
+  retries: 15
+  delay: 2
+  changed_when: false
+  when: ipa_identity_checksum.changed

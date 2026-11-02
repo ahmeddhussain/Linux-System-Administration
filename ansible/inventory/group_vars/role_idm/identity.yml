@@ -15,8 +15,13 @@ ipa_homes_root: /users
 ipa_automount_location: default
 ipa_homes_nfs_export: util01.ahmed.internal:/export/home
 
+# Fixed numeric IDs (D-060), so a rebuilt IPA gives every user and group
+# the same numbers (NFS ownership, backups). They lie in the fixed IPA ID
+# range (role_idm/main.yml). Each user's private group has the same number.
+# Next free ID for a new user or group: 455400014 (then count up).
 ipa_users:
   - name: ahmed.admin
+    uid: 455400008
     first: Ahmed
     last: Admin
     groups: [admins]          # IPA administrators: everything, everywhere
@@ -24,6 +29,7 @@ ipa_users:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIES/ppUMBvBGMGdDvYCK0dWnF76bwI8WYckpYOW1VW+6 test-key ahmed.admin@ahmed.internal
       - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDUA62Wwuhxql2nhZxMsRvP03QQK+1Tg806lBZBgVLSPsQogmvgeWBeCZw6GKa5C1WnlRqcEEr38gK/EKdtVC2oOjwuzqyrVNeIXR0oOdCiUvoAj7rLeNlsVNp0mRIVSpj3aR6YOr+yUgiJ+05Eb//C9yN8CJFc8/Kdv55k6coyhMrUc3y4XhwKk0FeDJ9u7CQ7j2i8WgY8DDeDgbxakB0RD/52CMUZBI8nzNLsLs/ONFkjQUcoL2AgCrLtF58geM+Q5F/eZ7KDxGSLfWRT0fBs7fJSwa6vGdZYdN4rXhhao0Sbg0KwaIW7LkKsv7fiBTpXU9RPBjR/iArVCUpMVUEn ahmed-laptop
   - name: ahmed
+    uid: 455400009
     first: Ahmed
     last: Developer
     groups: [dev]
@@ -31,24 +37,28 @@ ipa_users:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICZEbt5kodSFeqeJFtdw8m29xqSZjNdSk4Hd/T2tjxNk test-key ahmed@ahmed.internal
       - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDUA62Wwuhxql2nhZxMsRvP03QQK+1Tg806lBZBgVLSPsQogmvgeWBeCZw6GKa5C1WnlRqcEEr38gK/EKdtVC2oOjwuzqyrVNeIXR0oOdCiUvoAj7rLeNlsVNp0mRIVSpj3aR6YOr+yUgiJ+05Eb//C9yN8CJFc8/Kdv55k6coyhMrUc3y4XhwKk0FeDJ9u7CQ7j2i8WgY8DDeDgbxakB0RD/52CMUZBI8nzNLsLs/ONFkjQUcoL2AgCrLtF58geM+Q5F/eZ7KDxGSLfWRT0fBs7fJSwa6vGdZYdN4rXhhao0Sbg0KwaIW7LkKsv7fiBTpXU9RPBjR/iArVCUpMVUEn ahmed-laptop
   - name: sara
+    uid: 455400010
     first: Sara
     last: Ops
     groups: [ops]
     sshpubkey:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILyOBTX0qzrTXfvXmiUmE6ziJPFaUdHNmRA+X98LDaZ8 test-key sara@ahmed.internal
   - name: omar
+    uid: 455400011
     first: Omar
     last: DBA
     groups: [dba]
     sshpubkey:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOUzVZ30JJaGoDI8cMhJvHmraNOvFzQG8LpwmTb1ELn1 test-key omar@ahmed.internal
   - name: laila
+    uid: 455400012
     first: Laila
     last: Security
     groups: [security]
     sshpubkey:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ5jPTleclk3vd0PwXH4rnuMg+Ngej2vy5tO5eZpnd02 test-key laila@ahmed.internal
   - name: contractor1
+    uid: 455400013
     first: Example
     last: Contractor
     groups: [contractors]
@@ -59,14 +69,19 @@ ipa_users:
 # Team groups. "admins" is built into IPA and is not listed here.
 ipa_groups:
   - name: dev
+    gid: 455400003
     description: Development team
   - name: ops
+    gid: 455400004
     description: Operations team
   - name: dba
+    gid: 455400005
     description: Database administrators
   - name: security
+    gid: 455400006
     description: Security team (read-only log access)
   - name: contractors
+    gid: 455400007
     description: Temporary accounts, ws-dev01 only, no sudo
 
 # Host groups: full host names.

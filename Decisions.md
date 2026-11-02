@@ -667,3 +667,17 @@ Every design choice: what we chose, what else we considered, and why.
   already exists, so no new PKI. Naming directories by the sender's
   address stops one host from writing into another's. Everything per host
   is the easiest to search and to grant to the security team.
+
+## D-060: Fixed IPA ID range and explicit IDs for every user and group
+- **Chosen:** the IPA ID range is fixed at install (455400000-455599999,
+  the range this IPA first picked at random), and identity.yml gives every
+  user an explicit UID (private group = same number) and every group an
+  explicit GID; new entries take the next free number noted in the file
+- **Alternatives:** fixed range only, numbers in creation order; a new,
+  tidier range with every user renumbered; leave IDs to IPA
+- **Why:** A rebuilt IPA gave everyone new numbers, so files restored or
+  shared over NFS by number belonged to the old ones (D-056 as built).
+  Explicit IDs are stable whatever order entries are created in, like
+  HR-assigned employee numbers. Keeping the existing range and numbers
+  made the change a no-op on the running lab; renumbering would have
+  changed live users and their private groups for no gain.
