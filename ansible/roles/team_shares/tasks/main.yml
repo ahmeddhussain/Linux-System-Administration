@@ -8,13 +8,13 @@
     gids: "{{ hostvars[groups['ipaservers'][0]].ipa_groups | items2dict(key_name='name', value_name='gid') }}"
   ansible.builtin.set_fact:
     team_shares_all: >-
-      {% set out = [] %}
-      {% for t in team_shares %}
-      {% set _ = out.append({'name': t.name, 'group': t.name, 'id': gids[t.name],
-                             'quota': t.quota | default(team_share_quota_default), 'mode': '2770'}) %}
-      {% endfor %}
-      {% set _ = out.append({'name': company_share.name, 'group': company_share.group,
-                             'id': gids[company_share.group], 'quota': company_share.quota, 'mode': '3770'}) %}
+      {%- set out = [] -%}
+      {%- for t in team_shares -%}
+      {%- set _ = out.append({'name': t.name, 'group': t.name, 'id': gids[t.name],
+                              'quota': t.quota | default(team_share_quota_default), 'mode': '2770'}) -%}
+      {%- endfor -%}
+      {%- set _ = out.append({'name': company_share.name, 'group': company_share.group,
+                              'id': gids[company_share.group], 'quota': company_share.quota, 'mode': '3770'}) -%}
       {{ out }}
 
 # 2770: setgid (new files get the team's group), nobody else may enter.
