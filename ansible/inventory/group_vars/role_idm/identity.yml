@@ -14,11 +14,17 @@
 ipa_homes_root: /users
 ipa_automount_location: default
 ipa_homes_nfs_export: util01.ahmed.internal:/export/home
+# Shared team directories (D-061): /teams/<team> from util01.
+ipa_teams_root: /teams
+ipa_teams_nfs_export: util01.ahmed.internal:/export/teams
+# Every user is a member; owns the company share (D-061). IPA's own
+# ipausers group has no GID, so it cannot own files.
+ipa_company_group: employees
 
 # Fixed numeric IDs (D-060), so a rebuilt IPA gives every user and group
 # the same numbers (NFS ownership, backups). They lie in the fixed IPA ID
 # range (role_idm/main.yml). Each user's private group has the same number.
-# Next free ID for a new user or group: 455400014 (then count up).
+# Next free ID for a new user or group: 455400015 (then count up).
 ipa_users:
   - name: ahmed.admin
     uid: 455400008
@@ -59,6 +65,7 @@ ipa_users:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ5jPTleclk3vd0PwXH4rnuMg+Ngej2vy5tO5eZpnd02 test-key laila@ahmed.internal
   - name: contractor1
     uid: 455400013
+    home_quota: { soft: 40m, hard: 50m }   # contractors get a small home (D-061)
     first: Example
     last: Contractor
     groups: [contractors]
@@ -83,6 +90,9 @@ ipa_groups:
   - name: contractors
     gid: 455400007
     description: Temporary accounts, ws-dev01 only, no sudo
+  - name: employees
+    gid: 455400014
+    description: Every user (owns the company share, D-061)
 
 # Host groups: full host names.
 ipa_hostgroups:

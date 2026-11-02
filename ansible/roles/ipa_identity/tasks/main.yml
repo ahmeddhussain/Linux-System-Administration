@@ -45,6 +45,14 @@
     state: present
   loop: "{{ ipa_users | map(attribute='groups') | flatten | unique | list }}"
 
+- name: Every user is in the company group
+  freeipa.ansible_freeipa.ipagroup:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    name: "{{ ipa_company_group }}"
+    user: "{{ ipa_users | map(attribute='name') | list }}"
+    action: member
+    state: present
+
 - name: Host groups
   freeipa.ansible_freeipa.ipahostgroup:
     ipaadmin_password: "{{ ipaadmin_password }}"
@@ -108,6 +116,32 @@
     mapname: auto.home
     key: "*"
     info: "-fstype=nfs4,rw,sec=sys {{ ipa_homes_nfs_export }}/&"
+    state: present
+
+- name: Automount map for shared team directories (D-061)
+  freeipa.ansible_freeipa.ipaautomountmap:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    location: "{{ ipa_automount_location }}"
+    name: auto.teams
+    desc: "Shared team directories on util01 (D-061)"
+    state: present
+
+- name: Mount the team map at /teams
+  freeipa.ansible_freeipa.ipaautomountkey:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    location: "{{ ipa_automount_location }}"
+    mapname: auto.master
+    key: "{{ ipa_teams_root }}"
+    info: auto.teams
+    state: present
+
+- name: Every team directory comes from util01 over NFSv4
+  freeipa.ansible_freeipa.ipaautomountkey:
+    ipaadmin_password: "{{ ipaadmin_password }}"
+    location: "{{ ipa_automount_location }}"
+    mapname: auto.teams
+    key: "*"
+    info: "-fstype=nfs4,rw,sec=sys {{ ipa_teams_nfs_export }}/&"
     state: present
 
 - name: Commands used by restricted sudo rules

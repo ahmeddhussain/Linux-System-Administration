@@ -37,22 +37,23 @@
 
 # util01's services, in dependency order: the data volume first (homes and
 # logs live on it), Squid was already applied above.
-- name: util01 services (D-056 storage/backups, D-059 log server, D-058 NFS homes)
+- name: util01 services (D-056 storage/backups, D-059 logs, D-058/D-061 NFS and team shares)
   hosts: role_util
   roles:
     - util_storage
     - log_server
-    - nfs_home_server
+    - nfs_server
+    - team_shares
 
 - name: Every host sends its logs to util01 over TLS (D-059)
   hosts: all
   roles:
     - log_forwarder
 
-- name: Workstations use util01's services (D-058 NFS homes, D-057 web proxy)
+- name: Workstations use util01's services (D-058/D-061 NFS, D-057 web proxy)
   hosts: role_workstation
   roles:
-    - nfs_home_client
+    - nfs_client
     - proxy_client
 
 - name: VPN gateway

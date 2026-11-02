@@ -681,3 +681,26 @@ Every design choice: what we chose, what else we considered, and why.
   HR-assigned employee numbers. Keeping the existing range and numbers
   made the change a no-op on the running lab; renumbering would have
   changed live users and their private groups for no gain.
+
+## D-061: Storage - user and team data only on util01, quotas, team shares
+- **Chosen:** workstations keep only a minimal OS disk (10 GiB, the RHEL
+  image's minimum) and hold no user or team data; everything is on util01
+  over NFS. util01 gets a second 10 GB EBS volume added to vg_data
+  (pvcreate, vgextend); lv_home grows to 12 GB and a new lv_teams (8 GB)
+  holds /export/teams, automounted at /teams/<team> through a second IPA
+  map. Quotas: XFS user quotas on the homes (default soft 1 GB / hard
+  1.5 GB, per-user override in identity.yml) and XFS project quotas per
+  team directory (default 2 GB; project ID = the team's GID, D-060).
+  /teams/<team> is for that team only (setgid group, 2770, default ACLs so
+  new files stay team-writable); /teams/company is for every employee
+  (group ipausers, sticky bit: only the owner deletes a file).
+- **Alternatives:** local team directories per workstation; carving the
+  space from vg_data's free 4 GB; quotas on only homes or only teams;
+  team directories readable by everyone
+- **Why:** One copy of every file, backed up with the rest of util01, the
+  same on any workstation; a lost or replaced workstation loses nothing.
+  Adding a disk and growing the volume group is how storage grows in
+  production. Quotas stop one user or team filling the shared volume.
+  Default ACLs fix the classic problem of group directories where new
+  files are not writable by the rest of the group. Shrinking a root volume
+  replaces the workstations once; their data is already on util01.

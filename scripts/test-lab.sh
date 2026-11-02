@@ -67,6 +67,16 @@ for u, k in yaml.safe_load(sys.stdin)["test_user_private_keys"].items():
     fi
   }
 
+  # remote_check "description" <inventory-host> <command>: PASS when the
+  # command succeeds there as root (no extra shell layer, so plain quoting)
+  remote_check() {
+    if ansible "$2" -b -m shell -a "$3" > /dev/null 2>&1; then
+      echo "PASS  $1"; pass=$((pass + 1))
+    else
+      echo "FAIL  $1"; fail=$((fail + 1))
+    fi
+  }
+
   # as_check "description" <user> <host-ip> <command>: PASS when the command
   # succeeds in that user's login session
   as_check() {
@@ -263,6 +273,22 @@ sys.exit(1 if bad else 0)'"
   as_check "... is readable on ws-ops01 (same home)" ahmed.admin 10.0.2.11 "grep -q $token ~/.nfs-check"
   check "root on a workstation cannot read another user's home (root_squash)" "ansible ws-ops01 -b -m shell -a '! ls /users/sara'"
   as_check "servers keep local homes (idm01)"        ahmed.admin 10.0.1.11 '! findmnt -n -T ~ -o FSTYPE | grep -q nfs'
+
+  echo "== Storage on util01, quotas and team shares (D-061)"
+  remote_check "vg_data spans both data disks"     util01 'test $(pvs --noheadings -S vg_name=vg_data | wc -l) = 2'
+  remote_check "lv_home is 12G, lv_teams 8G"        util01 'lvs --noheadings --units g --nosuffix -o lv_size vg_data/lv_home | grep -q "12.00" && lvs --noheadings --units g --nosuffix -o lv_size vg_data/lv_teams | grep -q "8.00"'
+  remote_check "workstations keep only a 10 GiB OS disk" role_workstation 'test $(lsblk -bdno SIZE /dev/nvme0n1) -le 10737418240'
+  remote_check "home and team quotas are enforced"  util01 'xfs_quota -x -c "state -u" /export/home | grep -q "Enforcement: ON" && xfs_quota -x -c "state -p" /export/teams | grep -q "Enforcement: ON"'
+  as_check "contractor1 cannot exceed a 50 MB home quota" contractor1 10.0.2.10 '! dd if=/dev/zero of=~/quota-test bs=1M count=60 status=none conv=fsync; rm -f ~/quota-test'
+  as_check "ahmed writes in /teams/dev ..."          ahmed 10.0.2.10 'head -c 5M /dev/zero > /teams/dev/quota-check && test "$(stat -c %G /teams/dev/quota-check)" = dev'
+  as_check "... new files stay writable by the team" ahmed 10.0.2.10 'getfacl -p /teams/dev/quota-check 2>/dev/null | grep -q "^group:dev:rw"'
+  remote_check "... and count against dev's project quota" util01 'test "$(xfs_quota -x -c "report -p -N -b" /export/teams | awk "\$1 == \"dev\" {print \$2}")" -ge 5120'
+  as_check "ops cannot enter dev's directory"        sara  10.0.2.11 '! ls /teams/dev'
+  as_check "sara writes in the company share ..."    sara  10.0.2.11 'echo hi > /teams/company/from-sara'
+  as_check "... ahmed reads it ..."                   ahmed 10.0.2.10 'grep -q hi /teams/company/from-sara'
+  as_check "... but cannot delete it (sticky bit)"   ahmed 10.0.2.10 '! rm -f /teams/company/from-sara'
+  as_user ahmed 10.0.2.10 'rm -f /teams/dev/quota-check'
+  as_user sara 10.0.2.11 'rm -f /teams/company/from-sara'
 
   echo "== Web access through Squid (D-057): standard vs allow-list, per user"
   check "Squid listens on util01 (3128, 3129)"     "ansible util01 -b -m shell -a 'ss -Htln sport = :3128 | grep -q . && ss -Htln sport = :3129 | grep -q .'"

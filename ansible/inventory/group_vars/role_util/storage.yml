@@ -1,0 +1,24 @@
+---
+# Quotas and shared directories on util01 (D-061). Sizes: k, m, g.
+
+# Every home on /export/home, unless the user sets home_quota in identity.yml.
+home_quota_default: { soft: 1g, hard: 1536m }
+
+# One shared directory per IPA team group, at /teams/<name> on the
+# workstations. Only the team may use it. quota: hard limit for the whole
+# directory (XFS project quota; the project ID is the team's GID).
+team_share_quota_default: 2g
+team_shares:
+  - name: dev
+  - name: ops
+  - name: dba
+  - name: security
+  - name: contractors
+    quota: 1g
+
+# The company-wide share: every employee may write, only the owner of a
+# file may delete it (sticky bit).
+company_share:
+  name: company
+  group: employees
+  quota: 4g

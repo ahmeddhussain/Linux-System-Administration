@@ -1,5 +1,6 @@
 ---
-# NFSv4 home directories on util01 for the workstations (D-058).
+# NFSv4 on util01 for the workstations: home directories (D-058) and
+# shared team directories (D-061). User quotas on the homes are set here.
 
 - name: Install the NFS server
   ansible.builtin.dnf:
@@ -19,7 +20,7 @@
   ansible.builtin.copy:
     dest: /etc/nfs.conf.d/ahmed.conf
     content: |
-      # Managed by Ansible (role: nfs_home_server). NFSv4 over TCP only (D-058).
+      # Managed by Ansible (role: nfs_server). NFSv4 over TCP only (D-058).
       [nfsd]
       vers3=n
       udp=n
@@ -28,12 +29,15 @@
     mode: "0644"
   notify: Restart the NFS server
 
-- name: Export the home directories to the workstations only
+- name: Export homes and team directories to the workstations only
   ansible.builtin.copy:
     dest: /etc/exports.d/ahmed-homes.exports
     content: |
-      # Managed by Ansible (role: nfs_home_server). sec=sys, root squashed (D-058).
-      /export/home {% for h in groups['role_workstation'] | sort %}{{ hostvars[h].ansible_host }}(rw,sync,sec=sys,root_squash,no_subtree_check) {% endfor %}
+      # Managed by Ansible (role: nfs_server). sec=sys, root squashed (D-058, D-061).
+      {% for path in ['/export/home', '/export/teams'] %}
+      {{ path }} {% for h in groups['role_workstation'] | sort %}{{ hostvars[h].ansible_host }}(rw,sync,sec=sys,root_squash,no_subtree_check) {% endfor %}
+
+      {% endfor %}
 
     owner: root
     group: root
@@ -104,6 +108,28 @@
   loop_control:
     label: "{{ item.name }}"
 
+# Home quotas (D-061): the user's home_quota in identity.yml, or the default.
+# xfs_quota reports limits in KiB; a limit is only set when it differs.
+- name: Set each user's home quota
+  vars:
+    quota: "{{ item.home_quota | default(home_quota_default) }}"
+    soft_k: "{{ (quota.soft | human_to_bytes / 1024) | int }}"
+    hard_k: "{{ (quota.hard | human_to_bytes / 1024) | int }}"
+  ansible.builtin.shell: |
+    set -o pipefail
+    have=$(xfs_quota -x -c 'report -u -N -b' /export/home | awk -v u='{{ item.name }}' '$1 == u {print $3, $4}')
+    if [ "$have" != "{{ soft_k }} {{ hard_k }}" ]; then
+      xfs_quota -x -c 'limit -u bsoft={{ soft_k }}k bhard={{ hard_k }}k {{ item.name }}' /export/home
+      echo "set {{ soft_k }} {{ hard_k }}"
+    fi
+  args:
+    executable: /bin/bash
+  register: nfs_home_quota
+  changed_when: "'set ' in nfs_home_quota.stdout"
+  loop: "{{ hostvars[groups['ipaservers'][0]].ipa_users }}"
+  loop_control:
+    label: "{{ item.name }}: {{ quota.soft }} / {{ quota.hard }}"
+
 - name: Apply SELinux labels to the home directories
   ansible.builtin.command: restorecon -Rv /export/home
   register: nfs_home_restorecon
@@ -125,5 +151,6 @@
   changed_when: false
   check_mode: false
   failed_when: >-
+    '/export/teams' not in nfs_home_exports.stdout or
     groups['role_workstation'] | map('extract', hostvars, 'ansible_host')
     | reject('in', nfs_home_exports.stdout) | list | length > 0

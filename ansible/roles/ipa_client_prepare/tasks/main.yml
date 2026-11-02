@@ -35,6 +35,28 @@
   when: not ipa_client_keytab.stat.exists
   no_log: true
 
+# A replaced machine (new disk, same name) has no keytab, but IPA still
+# lists the old one as enrolled, and refuses a one-time password for an
+# enrolled host. Disabling the entry removes the old keytab (D-061).
+- name: Release the IPA entry of a host that was rebuilt
+  ansible.builtin.shell: |
+    set -o pipefail
+    export KRB5CCNAME="$(mktemp -u)"
+    printf '%s' "$IPA_PW" | kinit admin > /dev/null
+    if ipa host-show '{{ inventory_hostname }}.{{ ipa_domain }}' 2>/dev/null | grep -q 'Keytab: True'; then
+      ipa host-disable '{{ inventory_hostname }}.{{ ipa_domain }}' > /dev/null && echo released
+    fi
+    kdestroy
+  args:
+    executable: /bin/bash
+  environment:
+    IPA_PW: "{{ hostvars[groups['ipaservers'][0]].ipaadmin_password }}"
+  delegate_to: "{{ groups['ipaservers'][0] }}"
+  register: ipa_client_released
+  changed_when: "'released' in ipa_client_released.stdout"
+  when: not ipa_client_keytab.stat.exists
+  no_log: true
+
 - name: Register the host in IPA with that password and its DNS record
   freeipa.ansible_freeipa.ipahost:
     ipaadmin_password: "{{ hostvars[groups['ipaservers'][0]].ipaadmin_password }}"

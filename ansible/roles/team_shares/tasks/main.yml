@@ -1,0 +1,94 @@
+---
+# Shared team directories on util01 (D-061): /export/teams/<team>, exported
+# by nfs_server, mounted at /teams/<team> on the workstations.
+
+# Project ID = the group's GID (D-060), so it is stable across rebuilds.
+- name: Work out every share, its group, project ID and quota
+  vars:
+    gids: "{{ hostvars[groups['ipaservers'][0]].ipa_groups | items2dict(key_name='name', value_name='gid') }}"
+  ansible.builtin.set_fact:
+    team_shares_all: >-
+      {% set out = [] %}
+      {% for t in team_shares %}
+      {% set _ = out.append({'name': t.name, 'group': t.name, 'id': gids[t.name],
+                             'quota': t.quota | default(team_share_quota_default), 'mode': '2770'}) %}
+      {% endfor %}
+      {% set _ = out.append({'name': company_share.name, 'group': company_share.group,
+                             'id': gids[company_share.group], 'quota': company_share.quota, 'mode': '3770'}) %}
+      {{ out }}
+
+# 2770: setgid (new files get the team's group), nobody else may enter.
+# 3770 for the company share adds the sticky bit: only a file's owner may
+# delete it.
+- name: Create the shared directories
+  ansible.builtin.file:
+    path: "/export/teams/{{ item.name }}"
+    state: directory
+    owner: root
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop: "{{ team_shares_all }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.group }}, {{ item.mode }})"
+
+# setgid alone gives new files the right group but not group write; the
+# default ACL makes everything created inside writable by the group.
+- name: Keep new files writable by the group (default ACL)
+  ansible.posix.acl:
+    path: "/export/teams/{{ item.name }}"
+    entity: "{{ item.group }}"
+    etype: group
+    permissions: rwx
+    default: true
+    state: present
+  loop: "{{ team_shares_all }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Define the XFS projects (one per share)
+  ansible.builtin.copy:
+    dest: "{{ item.dest }}"
+    content: |
+      # Managed by Ansible (role: team_shares) (D-061)
+      {% for s in team_shares_all %}
+      {{ item.line | replace('NAME', s.name) | replace('ID', s.id | string) }}
+      {% endfor %}
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { dest: /etc/projects, line: "ID:/export/teams/NAME" }
+    - { dest: /etc/projid, line: "NAME:ID" }
+  loop_control:
+    label: "{{ item.dest }}"
+
+# Tag a tree with its project only when the check finds untagged files
+# (new directory, or files brought back by a restore).
+- name: Tag each share with its project
+  ansible.builtin.shell: |
+    if xfs_quota -x -c 'project -c {{ item.name }}' /export/teams 2>&1 | grep -q 'project identifier is not set\|is not set'; then
+      xfs_quota -x -c 'project -s {{ item.name }}' /export/teams > /dev/null && echo tagged
+    fi
+  register: team_shares_tag
+  changed_when: "'tagged' in team_shares_tag.stdout"
+  loop: "{{ team_shares_all }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Set each share's quota (only when it differs)
+  vars:
+    hard_k: "{{ (item.quota | human_to_bytes / 1024) | int }}"
+  ansible.builtin.shell: |
+    set -o pipefail
+    have=$(xfs_quota -x -c 'report -p -N -b' /export/teams | awk -v p='{{ item.name }}' '$1 == p {print $4}')
+    if [ "$have" != "{{ hard_k }}" ]; then
+      xfs_quota -x -c 'limit -p bhard={{ hard_k }}k {{ item.name }}' /export/teams
+      echo set
+    fi
+  args:
+    executable: /bin/bash
+  register: team_shares_quota
+  changed_when: "'set' in team_shares_quota.stdout"
+  loop: "{{ team_shares_all }}"
+  loop_control:
+    label: "{{ item.name }}: {{ item.quota }}"

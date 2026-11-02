@@ -17,6 +17,7 @@ module "hosts" {
   allocate_eip      = each.value.allocate_eip
   source_dest_check = each.value.source_dest_check
   extra_volumes     = each.value.extra_volumes
+  root_volume_size  = each.value.root_volume_size
 
   tags = {
     Role = each.value.role

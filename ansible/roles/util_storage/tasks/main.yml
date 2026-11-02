@@ -6,15 +6,22 @@
     name: [lvm2, awscli2]
     state: present
 
-# The data volume is the only NVMe disk without partitions. Refuse to guess
-# if there is not exactly one, rather than format the wrong disk.
-- name: Find the data disk
+# Data disks are the unpartitioned NVMe disks (the root disk has
+# partitions). Refuse to guess if the count differs from Terraform's.
+- name: Find the data disks
   ansible.builtin.set_fact:
     util_storage_disks: >-
       {{ ansible_devices | dict2items
          | selectattr('key', 'match', '^nvme')
          | selectattr('value.partitions', 'equalto', {})
-         | map(attribute='key') | list }}
+         | map(attribute='key') | sort | list }}
+
+- name: Refuse to continue unless the expected data disks are present
+  ansible.builtin.assert:
+    that:
+      - util_storage_disks | length == util_storage_disk_count
+    fail_msg: "Expected {{ util_storage_disk_count }} data disks, found: {{ util_storage_disks }}"
+    quiet: true
 
 - name: Check whether the volume group already exists
   ansible.builtin.command: "vgs {{ util_storage_vg }}"
@@ -23,17 +30,34 @@
   failed_when: false
   check_mode: false
 
-- name: Refuse to continue unless exactly one data disk is found
-  ansible.builtin.assert:
-    that:
-      - util_storage_vgs.rc == 0 or util_storage_disks | length == 1
-    fail_msg: "Expected one unpartitioned NVMe data disk, found: {{ util_storage_disks }}"
-    quiet: true
+- name: List the disks already in the volume group
+  ansible.builtin.command: "pvs --noheadings -o pv_name -S vg_name={{ util_storage_vg }}"
+  register: util_storage_pvs
+  changed_when: false
+  failed_when: false
+  check_mode: false
 
-- name: Create the volume group on the data disk (new volume only)
-  ansible.builtin.command: "vgcreate {{ util_storage_vg }} /dev/{{ util_storage_disks[0] }}"
+# Only blank disks are ever added: a disk with any signature (filesystem,
+# LVM label from elsewhere) stops the run instead of being overwritten.
+- name: Check that disks not yet in the volume group are blank
+  ansible.builtin.command: "wipefs --no-act --noheadings /dev/{{ item }}"
+  register: util_storage_wipefs
+  changed_when: false
+  check_mode: false
+  failed_when: util_storage_wipefs.stdout | length > 0
+  loop: "{{ util_storage_disks | reject('in', util_storage_pvs.stdout | split | map('regex_replace', '^/dev/', '') | list) | list }}"
+
+- name: Create the volume group on the data disks (new volumes only)
+  ansible.builtin.command: "vgcreate {{ util_storage_vg }} {{ util_storage_disks | map('regex_replace', '^', '/dev/') | join(' ') }}"
   when: util_storage_vgs.rc != 0
   register: util_storage_vg_created
+
+- name: Add new data disks to the volume group
+  ansible.builtin.command: "vgextend {{ util_storage_vg }} /dev/{{ item.item }}"
+  when: util_storage_vgs.rc == 0
+  loop: "{{ util_storage_wipefs.results | default([]) }}"
+  loop_control:
+    label: "/dev/{{ item.item }}"
 
 - name: Create one logical volume per data area
   ansible.builtin.command: >-
@@ -43,6 +67,18 @@
   loop: "{{ util_storage_volumes | dict2items }}"
   loop_control:
     label: "lv_{{ item.key }} ({{ item.value.size }})"
+
+- name: Grow logical volumes that are smaller than wanted (and their filesystem)
+  ansible.builtin.shell: >-
+    want=$(numfmt --from=iec {{ item.value.size }});
+    have=$(lvs --noheadings --units b --nosuffix -o lv_size {{ util_storage_vg }}/lv_{{ item.key }} | tr -d ' ');
+    if [ "$have" -lt "$want" ]; then
+    lvextend --resizefs --size {{ item.value.size }} {{ util_storage_vg }}/lv_{{ item.key }} > /dev/null && echo grown; fi
+  register: util_storage_grow
+  changed_when: "'grown' in util_storage_grow.stdout"
+  loop: "{{ util_storage_volumes | dict2items }}"
+  loop_control:
+    label: "lv_{{ item.key }} -> {{ item.value.size }}"
 
 - name: Check for a filesystem on each logical volume
   ansible.builtin.command: "blkid -o value -s TYPE /dev/{{ util_storage_vg }}/lv_{{ item.key }}"
@@ -66,11 +102,33 @@
     path: "{{ item.value.mount }}"
     src: "/dev/{{ util_storage_vg }}/lv_{{ item.key }}"
     fstype: xfs
-    opts: defaults
+    opts: "{{ item.value.opts }}"
     state: mounted
   loop: "{{ util_storage_volumes | dict2items }}"
   loop_control:
     label: "{{ item.value.mount }}"
+
+# XFS cannot switch quotas on with a remount; an existing mount without
+# them is unmounted and mounted again (NFS is stopped for a moment).
+- name: Switch quota accounting on where wanted (remount if needed)
+  ansible.builtin.shell: |
+    set -e
+    state=$(xfs_quota -x -c 'state -{{ 'u' if item.value.opts == 'uquota' else 'p' }}' {{ item.value.mount }})
+    if echo "$state" | grep -q 'Accounting: ON' && echo "$state" | grep -q 'Enforcement: ON'; then exit 0; fi
+    nfs=$(systemctl is-active nfs-server || true)
+    if [ "$nfs" = active ]; then systemctl stop nfs-server; fi
+    umount {{ item.value.mount }}
+    mount {{ item.value.mount }}
+    if [ "$nfs" = active ]; then systemctl start nfs-server; fi
+    echo remounted
+  args:
+    executable: /bin/bash
+  register: util_storage_quota
+  changed_when: "'remounted' in util_storage_quota.stdout"
+  when: item.value.opts != 'defaults'
+  loop: "{{ util_storage_volumes | dict2items }}"
+  loop_control:
+    label: "{{ item.value.mount }} ({{ item.value.opts }})"
 
 - name: Remove a plain SELinux type rule where the area copies another path's labels
   ansible.builtin.shell: >-

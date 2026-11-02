@@ -118,6 +118,7 @@ variable "hosts" {
     control_node_role = optional(bool, false)
     security_group    = optional(string) # defaults to role
     backup_writer     = optional(bool, false)
+    root_volume_size  = optional(number, 20) # GiB; the RHEL image needs at least 10
     extra_volumes = optional(map(object({
       device_name = string
       size        = number
@@ -157,24 +158,27 @@ variable "hosts" {
       team          = "platform"
       backup_writer = true # writes backups to S3 (iam.tf, D-056)
       extra_volumes = {
-        data = { device_name = "/dev/sdf", size = 20 }
+        data  = { device_name = "/dev/sdf", size = 20 }
+        data2 = { device_name = "/dev/sdg", size = 10 } # vg_data grows onto it (D-061)
       }
     }
     ws-dev01 = {
-      role           = "workstation"
-      security_group = "workstation-dev"
-      subnet         = "workstation"
-      private_ip     = "10.0.2.10"
-      instance_type  = "t3.small"
-      team           = "dev"
+      role             = "workstation"
+      security_group   = "workstation-dev"
+      root_volume_size = 10 # OS only; user and team data live on util01 (D-061)
+      subnet           = "workstation"
+      private_ip       = "10.0.2.10"
+      instance_type    = "t3.small"
+      team             = "dev"
     }
     ws-ops01 = {
-      role           = "workstation"
-      security_group = "workstation-ops"
-      subnet         = "workstation"
-      private_ip     = "10.0.2.11"
-      instance_type  = "t3.small"
-      team           = "ops"
+      role             = "workstation"
+      security_group   = "workstation-ops"
+      root_volume_size = 10 # OS only; user and team data live on util01 (D-061)
+      subnet           = "workstation"
+      private_ip       = "10.0.2.11"
+      instance_type    = "t3.small"
+      team             = "ops"
     }
   }
 
@@ -198,6 +202,11 @@ variable "hosts" {
   validation {
     condition     = length(distinct([for h in values(var.hosts) : h.private_ip])) == length(var.hosts)
     error_message = "Two hosts share a private_ip."
+  }
+
+  validation {
+    condition     = alltrue([for h in values(var.hosts) : h.root_volume_size >= 10])
+    error_message = "root_volume_size must be at least 10 GiB (the RHEL image's size)."
   }
 
   validation {

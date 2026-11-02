@@ -1,6 +1,7 @@
 ---
-# Workstations mount IPA users' homes from util01 with autofs (D-058). The
-# map lives in IPA (identity.yml); SSSD serves it to autofs.
+# Workstations mount IPA users' homes (D-058) and the team directories
+# (D-061) from util01 with autofs. The maps live in IPA (identity.yml);
+# SSSD serves them to autofs.
 
 - name: Let processes use home directories on NFS (SELinux)
   ansible.posix.seboolean:
@@ -18,7 +19,7 @@
 # show whether ipa-client-automount ran (it had not, 2026-11-01).
 - name: Check whether automount maps already come from IPA
   ansible.builtin.command: grep -qE '^ipa_automount_location\s*=' /etc/sssd/sssd.conf
-  register: nfs_home_client_nss
+  register: nfs_client_nss
   changed_when: false
   failed_when: false
   check_mode: false
@@ -27,7 +28,7 @@
   ansible.builtin.command: >-
     ipa-client-automount --unattended
     --location={{ hostvars[groups['ipaservers'][0]].ipa_automount_location }}
-  when: nfs_home_client_nss.rc != 0
+  when: nfs_client_nss.rc != 0
 
 - name: Enable and start autofs
   ansible.builtin.systemd_service:
@@ -35,9 +36,11 @@
     enabled: true
     state: started
 
-- name: Confirm autofs knows the home directory map
+- name: Confirm autofs knows the home and team directory maps
   ansible.builtin.command: automount -m
-  register: nfs_home_client_maps
+  register: nfs_client_maps
   changed_when: false
   check_mode: false
-  failed_when: hostvars[groups['ipaservers'][0]].ipa_homes_root not in nfs_home_client_maps.stdout
+  failed_when: >-
+    hostvars[groups['ipaservers'][0]].ipa_homes_root not in nfs_client_maps.stdout or
+    hostvars[groups['ipaservers'][0]].ipa_teams_root not in nfs_client_maps.stdout
