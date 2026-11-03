@@ -3,7 +3,7 @@
 Handoff for a fresh Claude Code session (written 2026-11-03, verified against
 the repository at commit `c30f4a0`). Read `CLAUDE.md` first for the working
 rules; this file is the project's memory. Details live in `Decisions.md`
-(D-001 to D-061), `docs/incident-reports/` (INC-001 to INC-005) and
+(D-001 to D-062), `docs/incident-reports/` (INC-001 to INC-006) and
 `docs/runbooks/`.
 
 ---
@@ -90,7 +90,7 @@ GitHub: `github.com/ahmeddhussain/Linux-System-Administration` (public).
 | `ansible/tests/` | Encrypted private test keys (IPA users, VPN test peers) |
 | `ansible/scripts/vault-password.py` | Vault password from SSM |
 | `scripts/` | `lab.sh` (+ `lib/`), `vpn-client.sh`, `test-lab.sh`, `control01-setup.sh` |
-| `Decisions.md` | Every decision with alternatives and reasons (D-001 to D-061) |
+| `Decisions.md` | Every decision with alternatives and reasons (D-001 to D-062) |
 | `docs/` | `architecture/` (org-structure, FreeIPA options), `incident-reports/`, `runbooks/` (vpn-client, freeipa, storage) |
 
 Where to change things (data, not code): users/groups/HBAC/sudo/IDs in
@@ -171,6 +171,7 @@ in section 7. First real backup restore: 1 s.
 | Backup failed | NFS `.nfsXXXX` silly-rename files locked | exclude `.nfs*` |
 | Security group delete hung ~15 min | Terraform deletes an SG before moving instances | create new SGs and rules, move instances, delete old last |
 | Re-enrolling a replaced host | IPA refuses an OTP for an enrolled host | release (disable) the old entry first |
+| `InvalidIPAddress.InUse` for control01 (INC-006) | Instance Connect Endpoint auto-assigned 10.0.1.10 | explicit subnet CIDR reservation for fixed host IPs (D-062) |
 
 Shell and Ansible traps (full list in `CLAUDE.md` lessons): ssh needs a closed
 stdin (`-n`); `pgrep/pkill -f` match their own ssh command line (use `[x]yz`);

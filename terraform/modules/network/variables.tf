@@ -14,10 +14,11 @@ variable "availability_zone" {
 }
 
 variable "subnets" {
-  description = "Subnets by name: CIDR block and whether the subnet is public"
+  description = "Subnets by name: CIDR block, whether the subnet is public, and the block reserved for fixed host IPs"
   type = map(object({
-    cidr   = string
-    public = bool
+    cidr        = string
+    public      = bool
+    static_cidr = string
   }))
 }
 

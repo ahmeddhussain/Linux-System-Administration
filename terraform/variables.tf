@@ -35,16 +35,29 @@ variable "vpc_cidr" {
 }
 
 variable "subnets" {
-  description = "Subnets by tier: CIDR block and whether the subnet is public"
+  description = "Subnets by tier: CIDR block, whether the subnet is public, and the block reserved for fixed host IPs"
   type = map(object({
     cidr   = string
     public = bool
+    # Explicit CIDR reservation (D-062): AWS never auto-assigns these
+    # addresses (NAT gateway, Instance Connect Endpoint), so every host's
+    # private_ip must be inside it.
+    static_cidr = string
   }))
   default = {
-    public      = { cidr = "10.0.0.0/24", public = true }
-    infra       = { cidr = "10.0.1.0/24", public = false }
-    workstation = { cidr = "10.0.2.0/24", public = false }
-    app         = { cidr = "10.0.3.0/24", public = false }
+    public      = { cidr = "10.0.0.0/24", public = true, static_cidr = "10.0.0.8/29" }
+    infra       = { cidr = "10.0.1.0/24", public = false, static_cidr = "10.0.1.8/29" }
+    workstation = { cidr = "10.0.2.0/24", public = false, static_cidr = "10.0.2.8/29" }
+    app         = { cidr = "10.0.3.0/24", public = false, static_cidr = "10.0.3.8/29" }
+  }
+
+  validation {
+    condition = alltrue([
+      for s in values(var.subnets) : can(cidrhost(s.static_cidr, 0)) && (
+        cidrhost("${cidrhost(s.static_cidr, 0)}/${split("/", s.cidr)[1]}", 0) == cidrhost(s.cidr, 0)
+      ) && tonumber(split("/", s.static_cidr)[1]) > tonumber(split("/", s.cidr)[1])
+    ])
+    error_message = "Every subnet's static_cidr must be a smaller block inside its cidr."
   }
 }
 
@@ -202,6 +215,16 @@ variable "hosts" {
   validation {
     condition     = length(distinct([for h in values(var.hosts) : h.private_ip])) == length(var.hosts)
     error_message = "Two hosts share a private_ip."
+  }
+
+  validation {
+    condition = alltrue([
+      for h in values(var.hosts) : try(
+        cidrhost("${h.private_ip}/${split("/", var.subnets[h.subnet].static_cidr)[1]}", 0) == cidrhost(var.subnets[h.subnet].static_cidr, 0),
+        false
+      )
+    ])
+    error_message = "Every host's private_ip must be inside its subnet's static_cidr (D-062), or AWS may give it to a NAT gateway or endpoint first."
   }
 
   validation {

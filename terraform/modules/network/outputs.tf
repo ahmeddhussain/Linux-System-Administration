@@ -9,8 +9,12 @@ output "vpc_cidr" {
 }
 
 output "subnet_ids" {
-  description = "Subnet IDs by name"
+  description = "Subnet IDs by name, available only once the fixed-IP reservations exist"
   value       = { for name, s in aws_subnet.this : name => s.id }
+
+  # Everything placed in a subnet (instances, the endpoint) waits for the
+  # reservations, so nothing can take a host's address first (D-062).
+  depends_on = [aws_ec2_subnet_cidr_reservation.static]
 }
 
 output "private_route_table_id" {

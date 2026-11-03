@@ -9,8 +9,8 @@ variables {
   vpc_cidr          = "10.0.0.0/16"
   availability_zone = "us-east-1a"
   subnets = {
-    public = { cidr = "10.0.0.0/24", public = true }
-    infra  = { cidr = "10.0.1.0/24", public = false }
+    public = { cidr = "10.0.0.0/24", public = true, static_cidr = "10.0.0.8/29" }
+    infra  = { cidr = "10.0.1.0/24", public = false, static_cidr = "10.0.1.8/29" }
   }
 }
 
@@ -53,5 +53,18 @@ run "only_public_subnets_map_public_ips" {
       aws_subnet.this["infra"].map_public_ip_on_launch == false
     )
     error_message = "Private subnets must never give instances public addresses."
+  }
+}
+
+run "every_subnet_reserves_fixed_ips" {
+  command = plan
+
+  assert {
+    condition = (
+      length(aws_ec2_subnet_cidr_reservation.static) == 2 &&
+      alltrue([for r in aws_ec2_subnet_cidr_reservation.static : r.reservation_type == "explicit"]) &&
+      aws_ec2_subnet_cidr_reservation.static["infra"].cidr_block == "10.0.1.8/29"
+    )
+    error_message = "Every subnet needs an explicit reservation for fixed host IPs (D-062, INC-006)."
   }
 }

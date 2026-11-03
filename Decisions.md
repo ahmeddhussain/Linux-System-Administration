@@ -704,3 +704,26 @@ Every design choice: what we chose, what else we considered, and why.
   Default ACLs fix the classic problem of group directories where new
   files are not writable by the rest of the group. Shrinking a root volume
   replaces the workstations once; their data is already on util01.
+
+## D-062: Fixed host IPs - explicit subnet CIDR reservation
+- **Chosen:** every subnet reserves `10.0.x.8/29` (.8 to .15) with an
+  `explicit` subnet CIDR reservation (`aws_ec2_subnet_cidr_reservation` in
+  the network module). AWS never auto-assigns an address from it, so the
+  NAT gateway, the Instance Connect Endpoint and any future managed
+  interface take addresses elsewhere; hosts still request their fixed IP
+  inside it. The module's `subnet_ids` output waits for the reservations,
+  so nothing is placed in a subnet before they exist. A validation
+  rejects any host whose `private_ip` is outside its subnet's
+  `static_cidr`.
+- **Alternatives:** create the endpoint after the hosts (`depends_on`);
+  give the managed interfaces fixed IPs; drop fixed host IPs and use DNS
+  only
+- **Why:** INC-006: the endpoint took control01's 10.0.1.10 during a
+  fresh build. Ordering only protects a fresh build and leaves the NAT
+  gateway free to take gw01's address; the endpoint cannot be given a
+  fixed IP at all. Fixed host IPs are referenced by security group rules,
+  the VPN policy and the Ansible bootstrap, so they stay. A reservation is
+  the AWS mechanism for exactly this and covers interfaces we add later.
+  /29 starting at .8 keeps clear of the five addresses AWS reserves in
+  every subnet and holds today's hosts (.10 to .12) and app01; a subnet
+  needing more than eight fixed addresses gets a larger block.

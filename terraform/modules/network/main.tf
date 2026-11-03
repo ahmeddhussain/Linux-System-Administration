@@ -37,6 +37,19 @@ resource "aws_subnet" "this" {
   }
 }
 
+# Hosts have fixed private IPs. AWS gives managed interfaces (NAT gateway,
+# Instance Connect Endpoint) any free address, so without this a host's IP
+# can be taken before the host exists (INC-006). An explicit reservation is
+# never auto-assigned; instances may still ask for an address inside it.
+resource "aws_ec2_subnet_cidr_reservation" "static" {
+  for_each = var.subnets
+
+  subnet_id        = aws_subnet.this[each.key].id
+  cidr_block       = each.value.static_cidr
+  reservation_type = "explicit"
+  description      = "Fixed host IPs (D-062)"
+}
+
 # --- NAT gateway (outbound internet for private subnets) ------------------
 
 resource "aws_eip" "nat" {
@@ -57,7 +70,7 @@ resource "aws_nat_gateway" "main" {
     Name = "${var.name_prefix}-nat"
   }
 
-  depends_on = [aws_internet_gateway.main]
+  depends_on = [aws_internet_gateway.main, aws_ec2_subnet_cidr_reservation.static]
 }
 
 # --- Routing --------------------------------------------------------------

@@ -39,7 +39,7 @@ run "rejects_unknown_subnet" {
       bad01 = {
         role          = "util"
         subnet        = "dmz"
-        private_ip    = "10.0.1.50"
+        private_ip    = "10.0.1.13"
         instance_type = "t3.small"
         team          = "platform"
       }
@@ -57,7 +57,7 @@ run "rejects_unknown_role" {
       bad01 = {
         role          = "database"
         subnet        = "infra"
-        private_ip    = "10.0.1.50"
+        private_ip    = "10.0.1.13"
         instance_type = "t3.small"
         team          = "platform"
       }
@@ -75,14 +75,14 @@ run "rejects_duplicate_private_ip" {
       one01 = {
         role          = "util"
         subnet        = "infra"
-        private_ip    = "10.0.1.50"
+        private_ip    = "10.0.1.13"
         instance_type = "t3.small"
         team          = "platform"
       }
       two01 = {
         role          = "util"
         subnet        = "infra"
-        private_ip    = "10.0.1.50"
+        private_ip    = "10.0.1.13"
         instance_type = "t3.small"
         team          = "platform"
       }
@@ -100,7 +100,7 @@ run "rejects_two_control_nodes" {
       one01 = {
         role              = "control"
         subnet            = "infra"
-        private_ip        = "10.0.1.50"
+        private_ip        = "10.0.1.13"
         instance_type     = "t3.small"
         team              = "platform"
         control_node_role = true
@@ -108,10 +108,28 @@ run "rejects_two_control_nodes" {
       two01 = {
         role              = "control"
         subnet            = "infra"
-        private_ip        = "10.0.1.51"
+        private_ip        = "10.0.1.14"
         instance_type     = "t3.small"
         team              = "platform"
         control_node_role = true
+      }
+    }
+  }
+
+  expect_failures = [var.hosts]
+}
+
+run "rejects_ip_outside_static_range" {
+  command = plan
+
+  variables {
+    hosts = {
+      bad01 = {
+        role          = "util"
+        subnet        = "infra"
+        private_ip    = "10.0.1.50"
+        instance_type = "t3.small"
+        team          = "platform"
       }
     }
   }

@@ -1,7 +1,7 @@
 # CLAUDE.md: ahmed-infra
 
 Context for Claude Code. **Read `PROJECT_HANDOFF.md` first** (state, history,
-how to continue). Sources of truth: `Decisions.md` (D-001 to D-061),
+how to continue). Sources of truth: `Decisions.md` (D-001 to D-062),
 `docs/architecture/org-structure.md`, `docs/incident-reports/`,
 `docs/runbooks/`. Keep this file short; detail belongs in those files.
 
