@@ -19,3 +19,6 @@
 
 - name: Logging (journald, rsyslog, firewalld loopback)
   ansible.builtin.import_tasks: logging.yml
+
+- name: SSH drop-in permissions
+  ansible.builtin.import_tasks: ssh.yml

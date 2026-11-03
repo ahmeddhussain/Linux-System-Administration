@@ -1,10 +1,25 @@
 # Managed by Ansible (role: base). Do not edit by hand.
-PermitRootLogin no
+# Named 01- on purpose: sshd keeps the FIRST value it reads, and IPA's
+# 04-ipa.conf turns keyboard-interactive (PAM password) and GSSAPI back on
+# (INC-007). Logins are key-only.
+PubkeyAuthentication yes
 PasswordAuthentication no
 KbdInteractiveAuthentication no
+GSSAPIAuthentication no
+HostbasedAuthentication no
+IgnoreRhosts yes
 PermitEmptyPasswords no
+PermitRootLogin no
+PermitUserEnvironment no
 X11Forwarding no
+{% if ec2_tags.Role == 'workstation' %}
+# Workstations: no TCP, agent or X11 forwarding (sshd_disable_forwarding).
+# Not on servers: lab.sh forwards the bootstrap key into control01.
+DisableForwarding yes
+{% endif %}
 MaxAuthTries {{ base_ssh_max_auth_tries }}
+MaxSessions {{ base_ssh_max_sessions }}
+MaxStartups {{ base_ssh_max_startups }}
 LoginGraceTime {{ base_ssh_login_grace_time }}
 ClientAliveInterval {{ base_ssh_client_alive_interval }}
 ClientAliveCountMax {{ base_ssh_client_alive_count_max }}

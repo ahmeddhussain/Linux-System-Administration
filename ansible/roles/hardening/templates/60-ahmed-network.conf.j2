@@ -1,0 +1,48 @@
+# Managed by Ansible (role: hardening). Network hardening (D-064, CIS Level 1).
+# Host role: {{ ec2_tags.Role }}.
+
+{% if ec2_tags.Role != 'gateway' %}
+# sysctl_net_ipv4_ip_forward, *_conf_{all,default}_forwarding: not a router.
+# gw01 forwards VPN traffic (99-wireguard-forward.conf, compliance exception).
+net.ipv4.ip_forward = 0
+net.ipv4.conf.all.forwarding = 0
+net.ipv4.conf.default.forwarding = 0
+{% endif %}
+net.ipv6.conf.all.forwarding = 0
+net.ipv6.conf.default.forwarding = 0
+
+# Never send redirects, never accept them (even "secure" ones from gateways)
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.secure_redirects = 0
+net.ipv4.conf.default.secure_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+
+# No source-routed packets
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv6.conf.all.accept_source_route = 0
+net.ipv6.conf.default.accept_source_route = 0
+
+# Strict reverse-path filter: drop packets whose source would not be routed
+# back out of the same interface (spoofing)
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+
+# Log impossible ("martian") source addresses
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.conf.default.log_martians = 1
+
+# ICMP: ignore broadcast pings and bogus error responses
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+
+# SYN flood protection
+net.ipv4.tcp_syncookies = 1
+
+# IPv6 is not used; do not configure addresses from router advertisements
+net.ipv6.conf.all.accept_ra = 0
+net.ipv6.conf.default.accept_ra = 0

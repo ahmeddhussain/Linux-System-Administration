@@ -182,9 +182,12 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   echo "== Baseline configuration"
   check "SELinux is enforcing everywhere"          "[ \"\$(ansible all -b -m command -a getenforce -o | grep -c Enforcing)\" = 6 ]"
   check "firewalld, chronyd, sshd active everywhere" "ansible all -b -m shell -a 'for s in firewalld chronyd sshd; do systemctl is-active --quiet \$s || exit 1; done'"
-  check "sshd effective settings are hardened"     "ansible all -b -m shell -a '[ \$(sshd -T | grep -cE \"^(permitrootlogin no|passwordauthentication no|maxauthtries 4)\$\") -eq 3 ]'"
+  check "sshd effective settings are hardened"     "ansible all -b -m shell -a '[ \$(sshd -T | grep -cE \"^(permitrootlogin no|passwordauthentication no|kbdinteractiveauthentication no|gssapiauthentication no|maxauthtries 4)\$\") -eq 5 ]'"
   check "clocks are synchronized"                  "ansible all -b -m shell -a 'chronyc tracking | grep -q \"Leap status.*Normal\"'"
   check "password login is refused"                "$ssh_probe -o PreferredAuthentications=password -o PubkeyAuthentication=no ansible@10.0.2.10 true 2>&1 | grep -q 'Permission denied'"
+  # INC-007: the server must offer public keys and nothing else (IPA's
+  # drop-in had turned keyboard-interactive and GSSAPI back on).
+  check "servers offer only public-key login"     "for ip in 10.0.0.10 10.0.1.11 10.0.1.12 10.0.2.10 10.0.2.11; do $ssh_probe -o PubkeyAuthentication=no ansible@\$ip true 2>&1 | grep -q 'Permission denied (publickey)' || exit 1; done"
   check "root login is refused"                    "$ssh_probe -i ~/.ssh/ansible_ed25519 root@10.0.2.10 true 2>&1 | grep -q 'Permission denied'"
   check "login banner is shown"                    "$ssh_probe ansible@10.0.2.10 true 2>&1 | grep -q 'Authorized access only'"
 
@@ -199,6 +202,7 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   check "gateway key matches the one clients have" "ansible gw01 -b -m shell -a 'test \"\$(wg show wg0 public-key)\" = {{ wireguard_server_public_key }}'"
   check "wg0 is in the vpn firewall zone"          "ansible gw01 -b -m shell -a 'test \"\$(firewall-cmd --get-zone-of-interface=wg0)\" = vpn'"
   check "IPv4 forwarding is enabled"               "ansible gw01 -b -m shell -a 'test \$(sysctl -n net.ipv4.ip_forward) = 1'"
+  check "no other host forwards packets (D-064)"   "ansible 'all:!gw01' -b -m shell -a 'test \$(sysctl -n net.ipv4.ip_forward) = 0'"
   check "per-team forwarding policies are active"  "ansible gw01 -b -m shell -a 'p=\$(firewall-cmd --get-active-policies); for t in admin dev ops; do echo \"\$p\" | grep -qw vpn-\$t-to-vpc || exit 1; done; ! echo \"\$p\" | grep -qw vpn_to_vpc'"
   check "wstunnel is active"                       "ansible gw01 -b -m shell -a 'systemctl is-active --quiet wstunnel'"
   check "wstunnel listens on TCP 443"              "ansible gw01 -b -m shell -a 'ss -Htln sport = :443 | grep -q .'"

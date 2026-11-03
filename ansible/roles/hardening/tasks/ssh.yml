@@ -1,0 +1,19 @@
+---
+# file_permissions_sshd_drop_in_config: every sshd drop-in root-only,
+# including those IPA (04-ipa.conf), cloud-init and the OS install. Here, not
+# in base, because IPA writes its drop-in after base has run.
+- name: Find the sshd drop-ins
+  ansible.builtin.find:
+    paths: /etc/ssh/sshd_config.d
+    patterns: "*.conf"
+  register: hardening_sshd_dropins
+
+- name: Make every sshd drop-in root-only
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ hardening_sshd_dropins.files }}"
+  loop_control:
+    label: "{{ item.path }}"

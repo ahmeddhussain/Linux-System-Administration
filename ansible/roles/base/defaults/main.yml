@@ -17,8 +17,11 @@ base_packages:
 
 base_timezone: UTC
 
-# SSH hardening values.
+# SSH hardening values (CIS Level 1, D-064).
 base_ssh_max_auth_tries: 4
+base_ssh_max_sessions: 10
+base_ssh_max_startups: "10:30:60"
 base_ssh_login_grace_time: 30
+# A silent client is dropped after one unanswered check (300 s).
 base_ssh_client_alive_interval: 300
-base_ssh_client_alive_count_max: 2
+base_ssh_client_alive_count_max: 1

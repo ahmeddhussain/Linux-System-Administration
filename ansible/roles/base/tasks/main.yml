@@ -47,13 +47,19 @@
     immediate: true
     state: enabled
 
-- name: Install the SSH hardening drop-in
+- name: Install the SSH hardening drop-in (read first, INC-007)
   ansible.builtin.template:
     src: sshd_hardening.conf.j2
-    dest: /etc/ssh/sshd_config.d/10-ahmed-hardening.conf
+    dest: /etc/ssh/sshd_config.d/01-ahmed-hardening.conf
     owner: root
     group: root
     mode: "0600"
+  notify: Restart sshd
+
+- name: Remove the drop-in's old name (read after IPA's, INC-007)
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d/10-ahmed-hardening.conf
+    state: absent
   notify: Restart sshd
 
 - name: Validate the complete sshd configuration before any restart

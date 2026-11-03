@@ -8,6 +8,15 @@
     mode: "0644"
   notify: Apply sysctl settings
 
+- name: Network hardening settings
+  ansible.builtin.template:
+    src: 60-ahmed-network.conf.j2
+    dest: /etc/sysctl.d/60-ahmed-network.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply sysctl settings
+
 # coredump_disable_storage, coredump_disable_backtraces
 - name: Create the systemd-coredump drop-in directory
   ansible.builtin.file:
