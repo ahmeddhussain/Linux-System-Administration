@@ -60,4 +60,4 @@ of what the server actually offers.
 | Test: every server offers `publickey` and nothing else | Done |
 | Test: effective `sshd -T` values include kbdinteractive and gssapi `no` | Done |
 | Lesson in PROJECT_HANDOFF.md section 7 | Done |
-| Follow-up: IPA's `admin` is a break-glass identity, not a daily login; consider a separate HBAC group for named admins so `admin` cannot log into hosts at all | Open (proposed, needs Ahmed's decision) |
+| Follow-up: should IPA's `admin` log into hosts at all? | Closed: Ahmed keeps access to all hosts, keys only (D-069) |

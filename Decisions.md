@@ -792,7 +792,7 @@ Every design choice: what we chose, what else we considered, and why.
   keeps fixes from silently regressing.
 
 ## D-065: Patching cadence - monthly cycle in rings, urgent security cycle
-*Decided by Claude on Ahmed's delegation (2026-11-03); for his review.*
+*Proposed by Claude on Ahmed's delegation; approved by Ahmed (2026-11-03).*
 - **Chosen:** a monthly cycle and an urgent one, both `scripts/lab.sh
   patch` (`--security` for errata only). The cycle (`patch-cycle.yml`)
   patches in rings: ws-dev01 (canary); the other workstations and util01;
@@ -818,7 +818,7 @@ Every design choice: what we chose, what else we considered, and why.
   (site.yml), so the monthly cycle is demonstrated with `lab.sh patch`.
 
 ## D-066: Restore drills - scripted, measured against RPO and RTO targets
-*Decided by Claude on Ahmed's delegation (2026-11-03); for his review.*
+*Proposed by Claude on Ahmed's delegation; approved by Ahmed (2026-11-03).*
 - **Chosen:** `ahmed-backup drill` on util01 (`scripts/lab.sh drill
   restore`; also run by every `lab.sh up`/`resume`, so the tests always
   see a fresh result). It measures the RPO (time since the data was last
@@ -841,7 +841,7 @@ Every design choice: what we chose, what else we considered, and why.
   resume makes a broken backup visible the same day.
 
 ## D-067: Incident drills - planned failures, scripted, with reports
-*Decided by Claude on Ahmed's delegation (2026-11-03); for his review.*
+*Proposed by Claude on Ahmed's delegation; approved by Ahmed (2026-11-03).*
 - **Chosen:** three drills in `ansible/playbooks/drills/`, each inject,
   observe, recover, measure, and one result line in
   `/srv/logs/reports/drills/incident-drills.log` and syslog; a written
@@ -874,3 +874,15 @@ Every design choice: what we chose, what else we considered, and why.
   nothing, cannot drift (the IPs are fixed and reserved in code), and
   keep util01's services reachable during an identity outage. A replica
   doubles the most expensive host; a second DNS needs keeping in sync.
+
+## D-069: IPA's admin account keeps login access to every host
+*Chosen by Ahmed (2026-11-03), closing the INC-007 follow-up.*
+- **Chosen:** IPA's built-in `admin` stays in the `admins` group, which the
+  `admins-everywhere` HBAC rule and the `admins-all` sudo rule cover: it may
+  log into every host, with keys only (INC-007 removed password logins).
+- **Alternatives:** a separate group for named admins so `admin` cannot log
+  into hosts; disabling `admin` outside break-glass
+- **Why:** `admin` is the identity of last resort when named accounts or
+  their keys fail; SSH is key-only by configuration and tested, sudo use
+  is audited (D-063), so the remaining exposure is the key, not the
+  password.

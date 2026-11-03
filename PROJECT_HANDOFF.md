@@ -3,7 +3,7 @@
 Handoff for a fresh Claude Code session (updated 2026-11-03 end of session 3,
 verified against the repository as pushed). Read `CLAUDE.md` first for the working
 rules; this file is the project's memory. Details live in `Decisions.md`
-(D-001 to D-068), `docs/incident-reports/` (INC-001 to INC-007) and
+(D-001 to D-069), `docs/incident-reports/` (INC-001 to INC-007) and
 `docs/runbooks/`.
 
 ---
@@ -96,7 +96,7 @@ GitHub: `github.com/ahmeddhussain/Linux-System-Administration` (public).
 | `ansible/tests/` | Encrypted private test keys (IPA users, VPN test peers) |
 | `ansible/scripts/vault-password.py` | Vault password from SSM |
 | `scripts/` | `lab.sh` (+ `lib/`), `vpn-client.sh`, `test-lab.sh`, `control01-setup.sh` |
-| `Decisions.md` | Every decision with alternatives and reasons (D-001 to D-068) |
+| `Decisions.md` | Every decision with alternatives and reasons (D-001 to D-069) |
 | `docs/` | `architecture/` (org-structure, FreeIPA options), `incident-reports/` (INC-001 to INC-007), `drills/` (DRILL-001 to DRILL-004), `runbooks/` (vpn-client, freeipa, storage, patching) |
 
 Where to change things (data, not code): users/groups/HBAC/sudo/IDs in
@@ -205,6 +205,7 @@ in section 7. First real backup restore: 1 s.
 | "Unowned files" on util01 | OpenSCAP reads /etc/passwd, not SSSD; the files are IPA users' | documented exception for util01 |
 | Messages lost with util01's log disk full (DRILL-002) | rsyslog drops a message it cannot write (ENOSPC is permanent); senders already handed it over | space guard below 85%; action queues do not help (tried, reverted) |
 | Backup reported failed once under load | tar exit 1 = a log changed while read, treated as failure under pipefail | exit 1 is a warning, 2 a failure (hypothesis, not reproduced) |
+| Destroy failed with DependencyViolation after an interrupted `up` | Ctrl-C/SIGINT during apply left the Instance Connect Endpoint created in AWS but not in state (orphan) | delete the orphan by its `Name` tag (`ahmed-eice`), then destroy again; better: let an apply finish, then destroy |
 | `InvalidIPAddress.InUse` for control01 (INC-006) | Instance Connect Endpoint auto-assigned 10.0.1.10 | explicit subnet CIDR reservation for fixed host IPs (D-062) |
 
 Shell and Ansible traps (full list in `CLAUDE.md` lessons): ssh needs a closed
@@ -244,10 +245,8 @@ an EBS root volume cannot shrink (`-replace`); never interrupt dnf.
 - An instantly full log volume still loses messages (rsyslog design,
   DRILL-002); the space guard prevents the slow, realistic case. No
   alerting system yet: the guard's warnings go to syslog only.
-- IPA's `admin` account (password in the vault) is in IPA's `admins` group,
-  which HBAC allows everywhere. Since INC-007 it cannot log in with its
-  password over SSH, but it should not be a host login at all (open,
-  Ahmed's decision: a separate group for named admins).
+- IPA's `admin` logs into every host by design (D-069), keys only since
+  INC-007; its key is the remaining exposure.
 - AIDE's database is rebuilt at the end of every site.yml run and patch,
   so it reports only changes made outside Ansible between runs.
 - SSHFP records exist but without DNSSEC OpenSSH still relies on known_hosts.
@@ -257,16 +256,17 @@ an EBS root volume cannot shrink (`-replace`); never interrupt dnf.
 - Dev "restart app" and dba "sudo -u postgres" rules wait for app01.
 - No CI or linters, by Ahmed's choice; the tests are `test-lab.sh` and the
   Terraform mock tests.
-- D-065, D-066 and D-067 were decided by Claude on Ahmed's delegation
-  (marked in Decisions.md) and are open for his review.
 
 ---
 
 ## 10. Remaining tasks and roadmap
 
-**Ahmed (manual):** decide about the Free plan before 2026-12-21; review the
-delegated decisions D-065 to D-067; decide whether IPA's `admin` keeps host
-logins (INC-007 follow-up).
+**Ahmed (manual):** decide about the Free plan before 2026-12-21.
+
+**Ahmed's own work from here (by tickets, in `tickets/`):** operational changes
+such as adding a user (the checklist in `docs/architecture/org-structure.md`
+and the data in `role_idm/identity.yml`) and building app01. Claude's part
+of the project ends at roadmap 5 without app01.
 
 **Roadmap item 5, last part (next):** app01 (web and database tier in the
 app subnet, `10.0.3.10`; activates the dev and dba sudo rules), built to
@@ -339,8 +339,9 @@ patching in rings, restore and incident drills, two drill findings fixed,
 INC-006 and INC-007 resolved. Verified 160/160 on the running lab, site.yml
 rerun idempotent (changed=0 on all hosts), then brought down.
 
-**Next step:** `scripts/lab.sh up` from nothing (expect 160/160; the first
-full build with the hardening, audit and compliance roles), `vpn-client.sh
-refresh`,
+**Next step (Ahmed):** `scripts/lab.sh up` from nothing (expect 160/160; the
+first full build with the hardening, audit and compliance roles),
+`vpn-client.sh refresh`, then the tickets: adding users, app01 (roadmap 5,
+last part),
 then app01 (roadmap 5, last part), decisions first (options, alternatives,
 Ahmed chooses), one step at a time.

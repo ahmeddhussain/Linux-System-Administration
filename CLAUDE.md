@@ -1,7 +1,7 @@
 # CLAUDE.md: ahmed-infra
 
 Context for Claude Code. **Read `PROJECT_HANDOFF.md` first** (state, history,
-how to continue). Sources of truth: `Decisions.md` (D-001 to D-068),
+how to continue). Sources of truth: `Decisions.md` (D-001 to D-069),
 `docs/architecture/org-structure.md`, `docs/incident-reports/`,
 `docs/runbooks/`. Keep this file short; detail belongs in those files.
 
@@ -82,6 +82,7 @@ control01 run detached and are polled (`run_on_control01` in
 - Roadmap 1-4 and 5 without app01 done: audit (D-063), CIS Level 1 100%
   (D-064), patching (D-065), drills (D-066, D-067), pinned names (D-068);
   INC-006, INC-007 resolved. Last `lab.sh verify` **160/160**.
-- **Next:** `eval "$(ssh-agent)"; scripts/lab.sh up`, `vpn-client.sh
-  refresh`, then app01 (roadmap 5, last part), decisions first. Ahmed to
-  review delegated D-065 to D-067 and the INC-007 admin follow-up.
+- D-065 to D-067 approved; IPA `admin` keeps host access (D-069).
+- **Next (Ahmed, by tickets):** `eval "$(ssh-agent)"; scripts/lab.sh up`
+  (first full build with roadmap 5), `vpn-client.sh refresh`, then tickets
+  such as adding a user and app01.
