@@ -266,8 +266,9 @@ sys.exit(1 if bad else 0)'"
 
   echo "== Audit records on every host, central on util01 (D-063)"
   check "audit rules are loaded on every host" "ansible all -b -m shell -a 'auditctl -l | grep -q key=privileged && auditctl -l | grep -q -e \"-k identity\"'"
-  # [a] so the check does not match its own command line, which Ansible logs.
-  remote_check "audit records stay out of /var/log/messages" all '! grep -q "[a]udisp-syslog" /var/log/messages'
+  # Match the program field only: Ansible logs every command line it runs,
+  # so the word itself appears in messages from earlier checks.
+  remote_check "audit records stay out of /var/log/messages" all '! grep -qE "^[A-Z][a-z]{2} +[0-9]+ [0-9:]+ [^ ]+ audisp-syslog[:[]" /var/log/messages'
   audittoken="auditcheck-$(date +%s)"
   as_user sara 10.0.2.11 "sudo -n /usr/bin/echo $audittoken"
   ansible ws-dev01 -b -m command -a 'touch /etc/ssh/sshd_config' > /dev/null 2>&1
