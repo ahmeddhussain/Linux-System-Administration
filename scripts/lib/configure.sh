@@ -39,9 +39,10 @@ configure_hosts() {
 }
 
 # OpenSCAP scan of every host, results published on util01 (D-064).
+# Pulls first: "lab.sh compliance" runs without setup_control01.
 run_compliance() {
   log "Compliance scan (OpenSCAP CIS Level 1; several minutes)"
-  run_on_control01 compliance "$REMOTE_ANSIBLE && ansible-playbook playbooks/compliance.yml"
+  run_on_control01 compliance "git -C ~/ahmed-infra pull -q --ff-only && $REMOTE_ANSIBLE && ansible-playbook playbooks/compliance.yml"
 }
 
 run_tests() {
