@@ -22,3 +22,9 @@
 
 - name: SSH drop-in permissions
   ansible.builtin.import_tasks: ssh.yml
+
+- name: Local accounts and PAM
+  ansible.builtin.import_tasks: pam.yml
+
+- name: sudo defaults
+  ansible.builtin.import_tasks: sudo.yml

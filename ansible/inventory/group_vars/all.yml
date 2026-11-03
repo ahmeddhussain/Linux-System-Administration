@@ -24,13 +24,14 @@ web_proxy_team_policy:
 
 # Compliance (D-064): minimum OpenSCAP CIS Level 1 score per host role.
 # Raised as findings are fixed, never lowered; a host below it fails the
-# tests. Baseline from the first scan, 2026-11-03 (no fixes yet), rounded down.
+# tests. History: 70-74 baseline; 92-93 after batch 1; 95.6-96.2 after
+# batch 2 (network, SSH), 2026-11-03.
 compliance_min_score:
-  gateway: 74       # 74.36
-  control: 74       # 74.36
-  idm: 71           # 71.03
-  util: 70          # 70.44
-  workstation: 72   # 72.85
+  gateway: 96       # 96.16
+  control: 96       # 96.16
+  idm: 96           # 96.16
+  util: 95          # 95.56
+  workstation: 96   # 96.14
 
 # Compliance exceptions (D-064): CIS rules this design deliberately does not
 # meet. Each becomes a "not selected" rule in the host's tailoring file, so

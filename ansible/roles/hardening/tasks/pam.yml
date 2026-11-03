@@ -1,0 +1,169 @@
+---
+# Local account and PAM policy (D-064, CIS Level 1). Logins are key-only
+# (INC-007), so this governs local accounts, sudo password prompts and any
+# password ever set. IPA users' password policy lives in IPA.
+
+# PAM through authselect, the supported way on RHEL: a custom profile
+# copied from IPA's "sssd" profile, with faillock, password history and no
+# empty passwords added (accounts_password_pam_modules_in_authselect_profile,
+# account_password_pam_faillock_*, accounts_password_pam_pwhistory_*,
+# no_empty_passwords). The features IPA enabled stay on.
+- name: Create the company authselect profile (copy of sssd)
+  ansible.builtin.command: authselect create-profile ahmed -b sssd
+  args:
+    creates: /etc/authselect/custom/ahmed
+
+# accounts_password_pam_pwhistory_use_authtok: history checks the password
+# that pam_pwquality already accepted.
+- name: Password history uses the already-checked password
+  ansible.builtin.replace:
+    path: "/etc/authselect/custom/ahmed/{{ item }}"
+    regexp: '^(\s*password\s+(requisite|required|sufficient)\s+pam_pwhistory\.so(?!.*\buse_authtok\b).*?)\s*$'
+    replace: '\1 use_authtok'
+  loop: [system-auth, password-auth]
+  register: hardening_pam_profile
+
+- name: Read the selected profile and features
+  ansible.builtin.command: authselect current -r
+  register: hardening_authselect_current
+  changed_when: false
+  check_mode: false
+
+- name: Select the company profile with its features
+  ansible.builtin.command: >-
+    authselect select custom/ahmed {{ hardening_authselect_features | join(' ') }} --force
+  when: >-
+    hardening_authselect_current.stdout.split() | first != 'custom/ahmed' or
+    hardening_authselect_current.stdout.split()[1:] | sort != hardening_authselect_features | sort
+  vars:
+    hardening_authselect_features: [with-mkhomedir, with-sudo, with-faillock, with-pwhistory, without-nullok]
+
+- name: Apply profile file changes
+  ansible.builtin.command: authselect apply-changes
+  when: hardening_pam_profile is changed
+
+- name: Confirm the PAM configuration is consistent
+  ansible.builtin.command: authselect check
+  changed_when: false
+  check_mode: false
+
+# accounts_passwords_pam_faillock_deny, *_unlock_time_with_zero
+- name: Lock an account for 15 minutes after 5 failed passwords
+  ansible.builtin.lineinfile:
+    path: /etc/security/faillock.conf
+    regexp: '^\s*#?\s*{{ item.key }}\s*='
+    line: "{{ item.key }} = {{ item.value }}"
+  loop: "{{ {'deny': 5, 'unlock_time': 900} | dict2items }}"
+
+# accounts_password_pam_{minlen,minclass,difok,maxrepeat,maxsequence,
+# dictcheck,enforce_root}
+- name: Password quality rules
+  ansible.builtin.copy:
+    dest: /etc/security/pwquality.conf.d/60-ahmed.conf
+    content: |
+      # Managed by Ansible (role: hardening) (D-064)
+      minlen = 14
+      minclass = 4
+      difok = 2
+      maxrepeat = 3
+      maxsequence = 3
+      dictcheck = 1
+      enforce_for_root
+    owner: root
+    group: root
+    mode: "0644"
+
+# accounts_password_pam_pwhistory_{remember_*,enforce_for_root}
+- name: Remember the last 24 passwords, root included
+  ansible.builtin.lineinfile:
+    path: /etc/security/pwhistory.conf
+    regexp: '^\s*#?\s*{{ item.regexp }}'
+    line: "{{ item.line }}"
+  loop:
+    - { regexp: 'remember\s*=', line: 'remember = 24' }
+    - { regexp: 'enforce_for_root\s*$', line: 'enforce_for_root' }
+
+# accounts_maximum_age_login_defs, accounts_umask_etc_login_defs (new
+# accounts; existing ones keep their aging)
+- name: Password age and default umask for new accounts
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^\s*{{ item.key }}\s'
+    line: "{{ item.key }}\t{{ item.value }}"
+  loop: "{{ {'PASS_MAX_DAYS': 365, 'UMASK': '027'} | dict2items }}"
+
+# account_disable_post_pw_expiration
+- name: Disable accounts 45 days after their password expires
+  ansible.builtin.lineinfile:
+    path: /etc/default/useradd
+    regexp: '^\s*INACTIVE='
+    line: INACTIVE=45
+
+# accounts_umask_etc_bashrc, accounts_umask_etc_profile: files users create
+# are not readable by everyone (team shares keep their default ACLs, D-061).
+- name: Default umask 027 for login shells
+  ansible.builtin.replace:
+    path: "{{ item }}"
+    regexp: '^(\s*)umask\s+0?[0-7]{3}\s*$'
+    replace: '\1umask 027'
+  loop: [/etc/bashrc, /etc/profile]
+
+# accounts_tmout: idle interactive shells end after 15 minutes.
+- name: Idle shell timeout
+  ansible.builtin.copy:
+    dest: /etc/profile.d/ahmed-tmout.sh
+    content: |
+      # Managed by Ansible (role: hardening) (D-064)
+      typeset -xr TMOUT=900
+    owner: root
+    group: root
+    mode: "0644"
+
+# ensure_pam_wheel_group_empty, use_pam_wheel_group_for_su: nobody may su
+# (root is locked; admins use sudo, whose use is audited, D-063).
+- name: Empty group for su
+  ansible.builtin.group:
+    name: sugroup
+    state: present
+    system: true
+
+- name: Keep the su group empty
+  ansible.builtin.lineinfile:
+    path: /etc/group
+    regexp: '^(sugroup:[^:]*:[0-9]+:).+$'
+    line: '\1'
+    backrefs: true
+
+- name: Only members of the (empty) su group may use su
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/su
+    regexp: '^\s*#?\s*auth\s+required\s+pam_wheel\.so'
+    line: "auth            required        pam_wheel.so use_uid group=sugroup"
+    insertafter: '^auth\s+sufficient\s+pam_rootok\.so'
+
+# file_permission_user_init_files: dotfiles in local home directories are
+# not writable by the group nor readable by others.
+- name: List local accounts
+  ansible.builtin.getent:
+    database: passwd
+
+# Real users (UID 1000 and up) and root; system accounts have homes like /.
+- name: Find dotfiles in local home directories
+  ansible.builtin.find:
+    paths: >-
+      {{ ['/root'] + (ansible_facts.getent_passwd | dict2items
+         | selectattr('value.1', 'match', '^[0-9]{4,}$')
+         | map(attribute='value.4') | list) | unique }}
+    patterns: '^\.[\w\- ]+$'
+    use_regex: true
+    hidden: true
+  register: hardening_init_files
+
+# A symbolic mode changes only files that need it.
+- name: Tighten dotfile permissions
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    mode: "u-s,g-wxs,o="
+  loop: "{{ hardening_init_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"

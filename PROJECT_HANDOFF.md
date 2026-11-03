@@ -3,7 +3,7 @@
 Handoff for a fresh Claude Code session (written 2026-11-03, verified against
 the repository at commit `c30f4a0`). Read `CLAUDE.md` first for the working
 rules; this file is the project's memory. Details live in `Decisions.md`
-(D-001 to D-062), `docs/incident-reports/` (INC-001 to INC-006) and
+(D-001 to D-062), `docs/incident-reports/` (INC-001 to INC-007) and
 `docs/runbooks/`.
 
 ---
@@ -176,6 +176,7 @@ in section 7. First real backup restore: 1 s.
 | Backup failed | NFS `.nfsXXXX` silly-rename files locked | exclude `.nfs*` |
 | Security group delete hung ~15 min | Terraform deletes an SG before moving instances | create new SGs and rules, move instances, delete old last |
 | Re-enrolling a replaced host | IPA refuses an OTP for an enrolled host | release (disable) the old entry first |
+| SSH offered password (keyboard-interactive) logins everywhere (INC-007) | sshd keeps the FIRST value; IPA's `04-ipa.conf` was read before our `10-` drop-in | our drop-in is `01-ahmed-hardening.conf`; test checks the methods offered |
 | Audit tests found nothing on util01 | central log directories are FQDNs (`ws-ops01.ahmed.internal`) | use the FQDN in paths |
 | A "word not in /var/log/messages" check failed | Ansible logs every command line it runs | match the program field, not the word |
 | `InvalidIPAddress.InUse` for control01 (INC-006) | Instance Connect Endpoint auto-assigned 10.0.1.10 | explicit subnet CIDR reservation for fixed host IPs (D-062) |

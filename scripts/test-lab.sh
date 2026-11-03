@@ -188,6 +188,8 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   # INC-007: the server must offer public keys and nothing else (IPA's
   # drop-in had turned keyboard-interactive and GSSAPI back on).
   check "servers offer only public-key login"     "for ip in 10.0.0.10 10.0.1.11 10.0.1.12 10.0.2.10 10.0.2.11; do $ssh_probe -o PubkeyAuthentication=no ansible@\$ip true 2>&1 | grep -q 'Permission denied (publickey)' || exit 1; done"
+  check "PAM: company authselect profile (faillock, history, no empty passwords)" "ansible all -b -m shell -a 'authselect current -r | grep -qE \"^custom/ahmed .*with-faillock\" && authselect current -r | grep -q without-nullok && authselect check'"
+  check "nobody may use su (empty sugroup)"        "ansible all -b -m shell -a 'grep -q \"pam_wheel.so use_uid group=sugroup\" /etc/pam.d/su && test -z \"\$(getent group sugroup | cut -d: -f4)\"'"
   check "root login is refused"                    "$ssh_probe -i ~/.ssh/ansible_ed25519 root@10.0.2.10 true 2>&1 | grep -q 'Permission denied'"
   check "login banner is shown"                    "$ssh_probe ansible@10.0.2.10 true 2>&1 | grep -q 'Authorized access only'"
 
@@ -285,6 +287,7 @@ sys.exit(1 if bad else 0)'"
   remote_check "Ansible's own root commands are not in privileged" util01 "! $central/ws-dev01.ahmed.internal/audit.log -k privileged --start recent -i 2> /dev/null | grep -q 'auid=ansible'"
   as_check "the security team (laila) can search them"   laila 10.0.1.12 "sudo -n $central/ws-ops01.ahmed.internal/audit.log -k privileged --start recent > /dev/null"
   as_check "other teams (sara) cannot read them"          sara  10.0.1.12 "! cat /srv/logs/ws-ops01.ahmed.internal/audit.log"
+  remote_check "sudo also writes its own log (/var/log/sudo.log)" ws-ops01 "grep -q $audittoken /var/log/sudo.log"
   check "today's audit report is written" "ansible util01 -b -m shell -a 'systemctl start ahmed-audit-report.service && grep -q \"==== ws-ops01.ahmed.internal\" /srv/logs/reports/audit-\$(date +%F).txt'"
   as_check "... and the security team can read it"       laila 10.0.1.12 'test -r /srv/logs/reports/audit-$(date +%F).txt'
 

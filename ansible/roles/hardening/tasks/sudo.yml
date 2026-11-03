@@ -1,0 +1,32 @@
+---
+# sudo_add_use_pty, sudo_custom_logfile, sudo_require_reauthentication.
+# The rules themselves come from IPA (identity.yml); these are local
+# defaults for every rule. sudo commands are also audited (D-063).
+- name: sudo defaults
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/60-ahmed-defaults
+    content: |
+      # Managed by Ansible (role: hardening) (D-064)
+      Defaults use_pty
+      Defaults logfile=/var/log/sudo.log
+      Defaults timestamp_timeout=15
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Rotate the sudo log
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/ahmed-sudo
+    content: |
+      # Managed by Ansible (role: hardening) (D-064)
+      /var/log/sudo.log {
+          weekly
+          rotate 4
+          compress
+          missingok
+          notifempty
+      }
+    owner: root
+    group: root
+    mode: "0644"
