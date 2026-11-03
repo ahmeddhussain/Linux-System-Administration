@@ -28,3 +28,10 @@
 
 - name: sudo defaults
   ansible.builtin.import_tasks: sudo.yml
+
+- name: System-wide crypto policy
+  ansible.builtin.import_tasks: crypto.yml
+
+# Last: the database records the state this run has just configured.
+- name: File integrity (AIDE)
+  ansible.builtin.import_tasks: aide.yml

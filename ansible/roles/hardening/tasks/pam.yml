@@ -101,11 +101,19 @@
 
 # accounts_umask_etc_bashrc, accounts_umask_etc_profile: files users create
 # are not readable by everyone (team shares keep their default ACLs, D-061).
-- name: Default umask 027 for login shells
+# RHEL 10's /etc/bashrc sets umask only inside a test, and /etc/profile not
+# at all: correct any setting, then make sure one is there.
+- name: Correct existing umask settings for shells
   ansible.builtin.replace:
     path: "{{ item }}"
-    regexp: '^(\s*)umask\s+0?[0-7]{3}\s*$'
-    replace: '\1umask 027'
+    regexp: '^([^#]*\b)umask\s+\d+$'
+    replace: '\g<1>umask 027'
+  loop: [/etc/bashrc, /etc/profile]
+
+- name: Default umask 027 for shells
+  ansible.builtin.lineinfile:
+    path: "{{ item }}"
+    line: umask 027
   loop: [/etc/bashrc, /etc/profile]
 
 # accounts_tmout: idle interactive shells end after 15 minutes.

@@ -17,3 +17,16 @@
   loop: "{{ hardening_sshd_dropins.files }}"
   loop_control:
     label: "{{ item.path }}"
+
+# sshd_disable_gssapi_auth and INC-007: our 01- drop-in already wins, but
+# the scanner reads every file, and a later rename must not bring
+# password or GSSAPI logins back. Make IPA's and the OS's drop-ins agree.
+- name: No GSSAPI or keyboard-interactive in any sshd drop-in
+  ansible.builtin.replace:
+    path: "{{ item.0.path }}"
+    regexp: '^(\s*{{ item.1 }})\s+yes\s*$'
+    replace: '\1 no'
+  loop: "{{ hardening_sshd_dropins.files | product(['GSSAPIAuthentication', 'ChallengeResponseAuthentication', 'KbdInteractiveAuthentication']) | list }}"
+  loop_control:
+    label: "{{ item.0.path }}: {{ item.1 }}"
+  notify: Restart sshd

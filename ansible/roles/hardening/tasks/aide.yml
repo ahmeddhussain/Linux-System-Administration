@@ -1,0 +1,49 @@
+---
+# File integrity with AIDE (D-064, package_aide_installed, aide_build_database,
+# aide_check_audit_tools, aide_periodic_cron_checking).
+#
+# Ansible is the only authorized way to change these hosts, so the database
+# is rebuilt at the end of every site.yml run (this role runs last) and
+# after patching (patch.yml). The daily check then reports only changes made
+# outside Ansible; its result goes to syslog and so to util01 (D-059).
+- name: Install AIDE
+  ansible.builtin.dnf:
+    name: aide
+    state: present
+
+- name: AIDE also protects the audit tools (D-063)
+  ansible.builtin.lineinfile:
+    path: /etc/aide.conf
+    regexp: '^{{ item }}\s'
+    line: "{{ item }} p+i+n+u+g+s+b+acl+xattrs+sha512"
+  loop:
+    - /usr/sbin/auditctl
+    - /usr/sbin/auditd
+    - /usr/sbin/ausearch
+    - /usr/sbin/aureport
+    - /usr/sbin/augenrules
+
+- name: Check AIDE every night, result to syslog
+  ansible.builtin.cron:
+    name: run AIDE check
+    minute: "5"
+    hour: "4"
+    user: root
+    job: "/usr/sbin/aide --check 2>&1 | /usr/bin/logger -t aide"
+
+# Several minutes per host; all hosts in parallel.
+- name: Rebuild the AIDE database (this run's changes are authorized)
+  ansible.builtin.command: /usr/sbin/aide --init
+  changed_when: false
+  async: 1500
+  poll: 15
+
+- name: Use the new database
+  ansible.builtin.copy:
+    src: /var/lib/aide/aide.db.new.gz
+    dest: /var/lib/aide/aide.db.gz
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0600"
+  changed_when: false

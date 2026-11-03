@@ -32,3 +32,6 @@ hardening_masked_services: "{{ hardening_unused_services | difference(hardening_
 
 # partition_for_tmp and its mount options: /tmp on tmpfs (systemd tmp.mount).
 hardening_tmp_size: 50%
+
+# configure_custom_crypto_policy_cis
+hardening_crypto_policy: DEFAULT:NO-SSHCBC:NO-SSHWEAKCIPHERS:NO-SSHWEAKMACS:NO-WEAKMAC

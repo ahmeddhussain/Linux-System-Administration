@@ -17,3 +17,6 @@
 # Validate the whole configuration first; a broken rsyslog loses logs.
 - name: Restart rsyslog
   ansible.builtin.shell: rsyslogd -N1 && systemctl restart rsyslog
+
+- name: Restart sshd
+  ansible.builtin.shell: /usr/sbin/sshd -t && systemctl restart sshd

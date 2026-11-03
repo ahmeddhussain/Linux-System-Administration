@@ -291,6 +291,11 @@ sys.exit(1 if bad else 0)'"
   check "today's audit report is written" "ansible util01 -b -m shell -a 'systemctl start ahmed-audit-report.service && grep -q \"==== ws-ops01.ahmed.internal\" /srv/logs/reports/audit-\$(date +%F).txt'"
   as_check "... and the security team can read it"       laila 10.0.1.12 'test -r /srv/logs/reports/audit-$(date +%F).txt'
 
+  echo "== Hardening: crypto policy and file integrity (D-064)"
+  check "CIS crypto policy on every host" "ansible all -b -m shell -a 'test \"\$(update-crypto-policies --show)\" = DEFAULT:NO-SSHCBC:NO-SSHWEAKCIPHERS:NO-SSHWEAKMACS:NO-WEAKMAC'"
+  check "AIDE database on every host" "ansible all -b -m shell -a 'test -s /var/lib/aide/aide.db.gz'"
+  remote_check "AIDE notices a file changed outside Ansible" ws-dev01 'echo probe > /etc/ahmed-aide-probe; aide --check --limit /etc/ahmed-aide-probe 2>&1 | grep -q ahmed-aide-probe; rc=$?; rm -f /etc/ahmed-aide-probe; exit $rc'
+
   echo "== OpenSCAP compliance, CIS Level 1 (D-064)"
   oscap_dir=/srv/logs/reports/openscap
   remote_check "every host has an OpenSCAP result on util01 from today" util01 "test \$(find $oscap_dir -name results.xml.gz -mtime -1 | wc -l) = 6"

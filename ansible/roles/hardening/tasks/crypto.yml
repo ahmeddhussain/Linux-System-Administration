@@ -1,0 +1,31 @@
+---
+# configure_custom_crypto_policy_cis: the system-wide DEFAULT policy without
+# CBC and weak ciphers or MACs for SSH, and without 128-bit MACs. Kerberos
+# enctypes are not affected. sshd reads the policy at start, so restart it;
+# other services pick it up at their next start (patch reboots).
+- name: CIS crypto policy modules
+  ansible.builtin.copy:
+    dest: "/etc/crypto-policies/policies/modules/{{ item.name }}.pmod"
+    content: |
+      # Managed by Ansible (role: hardening) (D-064)
+      {{ item.line }}
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { name: NO-SSHCBC, line: "cipher@SSH = -*-CBC" }
+    - { name: NO-SSHWEAKCIPHERS, line: "cipher@SSH = -3DES-CBC -AES-128-CBC -AES-192-CBC -AES-256-CBC" }
+    - { name: NO-SSHWEAKMACS, line: "mac@SSH = -HMAC-MD5* -UMAC-64* -UMAC-128* -HMAC-SHA1*" }
+    - { name: NO-WEAKMAC, line: "mac = -*-128*" }
+  register: hardening_crypto_modules
+
+- name: Read the current crypto policy
+  ansible.builtin.command: update-crypto-policies --show
+  register: hardening_crypto_current
+  changed_when: false
+  check_mode: false
+
+- name: Select the CIS crypto policy
+  ansible.builtin.command: update-crypto-policies --set {{ hardening_crypto_policy }}
+  when: hardening_crypto_current.stdout != hardening_crypto_policy or hardening_crypto_modules is changed
+  notify: Restart sshd
