@@ -28,7 +28,8 @@ not, so nothing could be configured.
 | `lab.sh up` | apply creates network, endpoint, five hosts; control01 fails with `InvalidIPAddress.InUse` |
 | Investigation | network interface holding 10.0.1.10 is of type `ec2_instance_connect_endpoint` |
 | Recovery | `lab.sh down` (backup skipped: no control01, util01 empty); teardown confirmed |
-| Fix | D-062 in code, Terraform tests pass; rebuild from nothing |
+| Fix | D-062 in code (commit ee67c0d), Terraform tests pass |
+| Verify | rebuild from nothing: reservations accepted, 134/134 |
 
 ## Investigation
 - `aws ec2 describe-network-interfaces` filtered on 10.0.1.10: one
@@ -55,4 +56,4 @@ per build for the endpoint alone).
 | Destroy the partial lab | Done |
 | Explicit subnet CIDR reservation `10.0.x.8/29` per subnet; `subnet_ids` output waits for it; NAT gateway depends on it (D-062) | Done |
 | Validation: host `private_ip` must be inside its subnet's `static_cidr`; Terraform tests for both | Done |
-| Rebuild from nothing with `lab.sh up`, expect 134/134 | Pending |
+| Rebuild from nothing with `lab.sh up`: control01 got 10.0.1.10, `lab.sh verify` 134/134 | Done |
