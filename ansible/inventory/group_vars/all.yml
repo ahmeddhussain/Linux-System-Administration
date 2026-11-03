@@ -31,3 +31,39 @@ compliance_min_score:
   idm: 71           # 71.03
   util: 70          # 70.44
   workstation: 72   # 72.85
+
+# Compliance exceptions (D-064): CIS rules this design deliberately does not
+# meet. Each becomes a "not selected" rule in the host's tailoring file, so
+# it no longer counts against the score. roles: host roles it applies to
+# ("all" for every host).
+compliance_exceptions:
+  grub2_password:
+    roles: [all]
+    reason: "EC2 has no boot console a person could reach; a password only hinders recovery"
+  ensure_root_password_configured:
+    roles: [all]
+    reason: "root stays locked; logins are key-only and break-glass is Instance Connect (D-026)"
+  sshd_limit_user_access:
+    roles: [all]
+    reason: "IPA HBAC rules decide who may log in where (D-048, D-050); AllowGroups would duplicate them"
+  ensure_journald_and_rsyslog_not_active_together:
+    roles: [all]
+    reason: "rsyslog reads the journal and forwards over TLS to util01 (D-059, D-063)"
+  package_systemd-journal-remote_installed:
+    roles: [all]
+    reason: "central logging is rsyslog over TLS, not journal-remote (D-059)"
+  package_bind_removed:
+    roles: [idm]
+    reason: "FreeIPA integrated DNS runs on bind (D-047)"
+  package_httpd_removed:
+    roles: [idm]
+    reason: "FreeIPA web UI and API run on httpd (D-046)"
+  package_squid_removed:
+    roles: [util]
+    reason: "util01 is the company web proxy (D-057)"
+  service_nfs_disabled:
+    roles: [util]
+    reason: "util01 serves NFS homes and team shares (D-058, D-061)"
+  service_rpcbind_disabled:
+    roles: [util, workstation]
+    reason: "installed and started with the NFS server and client (D-058); revisit for NFSv4-only"

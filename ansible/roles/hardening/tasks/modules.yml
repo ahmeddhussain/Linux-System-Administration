@@ -1,0 +1,10 @@
+---
+# kernel_module_<name>_disabled: "install <name> /bin/false" stops the module
+# from loading even on request; "blacklist" stops automatic loading.
+- name: Never load unused kernel modules
+  ansible.builtin.template:
+    src: 60-ahmed-disabled-modules.conf.j2
+    dest: /etc/modprobe.d/60-ahmed-disabled-modules.conf
+    owner: root
+    group: root
+    mode: "0644"

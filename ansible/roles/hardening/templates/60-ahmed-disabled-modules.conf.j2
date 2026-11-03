@@ -1,0 +1,7 @@
+# Managed by Ansible (role: hardening). Kernel modules these hosts never
+# need: rare filesystems, removable storage, unused network protocols
+# (D-064, CIS Level 1).
+{% for m in hardening_disabled_modules %}
+install {{ m }} /bin/false
+blacklist {{ m }}
+{% endfor %}

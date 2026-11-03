@@ -61,13 +61,18 @@
   changed_when: false
   check_mode: false
 
+# The same text for network and console logins; no OS details, which the
+# stock /etc/issue shows (banner_etc_issue_cis, D-064).
 - name: Install the pre-login banner
   ansible.builtin.template:
     src: issue.net.j2
-    dest: /etc/issue.net
+    dest: "{{ item }}"
     owner: root
     group: root
     mode: "0644"
+  loop:
+    - /etc/issue.net
+    - /etc/issue
 
 - name: Install the post-login message
   ansible.builtin.template:

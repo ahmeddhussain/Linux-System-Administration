@@ -73,3 +73,9 @@
       ansible.builtin.include_role:
         name: wireguard_gateway
         tasks_from: tools
+
+# Last, after every service is built with stock settings (D-064).
+- name: CIS Level 1 hardening on every host (D-064)
+  hosts: all
+  roles:
+    - hardening

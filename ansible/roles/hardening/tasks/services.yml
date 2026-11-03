@@ -1,0 +1,18 @@
+---
+# service_nfs_disabled, service_rpcbind_disabled, service_autofs_disabled:
+# masked (cannot be started, even as a dependency) where not needed.
+- name: Find which of the unused services exist on this host
+  ansible.builtin.command: systemctl list-unit-files --no-legend {{ hardening_masked_services | join(' ') }}
+  register: hardening_unit_files
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Stop and mask services this host does not need
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop: "{{ hardening_masked_services }}"
+  when: item in hardening_unit_files.stdout

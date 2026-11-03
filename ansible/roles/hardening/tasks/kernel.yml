@@ -1,0 +1,41 @@
+---
+- name: Kernel hardening settings
+  ansible.builtin.template:
+    src: 60-ahmed-hardening.conf.j2
+    dest: /etc/sysctl.d/60-ahmed-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply sysctl settings
+
+# coredump_disable_storage, coredump_disable_backtraces
+- name: Create the systemd-coredump drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/coredump.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Do not store or process core dumps
+  ansible.builtin.copy:
+    dest: /etc/systemd/coredump.conf.d/60-ahmed.conf
+    content: |
+      # Managed by Ansible (role: hardening) (D-064)
+      [Coredump]
+      Storage=none
+      ProcessSizeMax=0
+    owner: root
+    group: root
+    mode: "0644"
+
+# disable_users_coredumps
+- name: No core dumps for any user
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/60-ahmed-core.conf
+    content: |
+      # Managed by Ansible (role: hardening) (D-064)
+      *     hard   core    0
+    owner: root
+    group: root
+    mode: "0644"

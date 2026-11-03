@@ -1,0 +1,34 @@
+---
+# CIS Level 1 fixes (D-064). Values follow the SCAP Security Guide rule
+# that each setting satisfies (rule names in the comments and templates).
+
+# kernel_module_<name>_disabled: never needed on these hosts.
+hardening_disabled_modules:
+  - cramfs
+  - freevxfs
+  - hfs
+  - hfsplus
+  - jffs2
+  - usb-storage
+  - firewire-core
+  - atm
+  - can
+  - dccp
+  - rds
+  - sctp
+  - tipc
+
+# service_*_disabled: masked on every host, except where the design needs
+# them (those rules are exceptions in compliance_exceptions instead).
+hardening_unused_services:
+  - nfs-server.service
+  - rpcbind.service
+  - rpcbind.socket
+  - autofs.service
+hardening_needed_services:
+  util: [nfs-server.service, rpcbind.service, rpcbind.socket]          # D-058
+  workstation: [autofs.service, rpcbind.service, rpcbind.socket]       # D-058
+hardening_masked_services: "{{ hardening_unused_services | difference(hardening_needed_services[ec2_tags.Role] | default([])) }}"
+
+# partition_for_tmp and its mount options: /tmp on tmpfs (systemd tmp.mount).
+hardening_tmp_size: 50%

@@ -1,0 +1,46 @@
+---
+# mount_option_dev_shm_{nodev,nosuid,noexec}
+- name: Mount /dev/shm with nodev, nosuid and noexec
+  ansible.posix.mount:
+    path: /dev/shm
+    src: tmpfs
+    fstype: tmpfs
+    opts: defaults,nodev,nosuid,noexec
+    state: mounted
+
+# partition_for_tmp and mount_option_tmp_*: the image has no /tmp
+# partition, and a root volume cannot be repartitioned in place; systemd's
+# tmp.mount gives /tmp its own tmpfs. Files in /tmp do not survive a reboot.
+- name: Create the tmp.mount drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/tmp.mount.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Mount /tmp with nodev, nosuid and noexec
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/tmp.mount.d/60-ahmed.conf
+    content: |
+      # Managed by Ansible (role: hardening) (D-064)
+      [Mount]
+      Options=mode=1777,strictatime,nodev,nosuid,noexec,size={{ hardening_tmp_size | replace('%', '%%') }},nr_inodes=1m
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Apply systemd changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Give /tmp its own tmpfs
+  ansible.builtin.systemd_service:
+    name: tmp.mount
+    enabled: true
+    state: started
+
+- name: Confirm /tmp is a tmpfs with noexec
+  ansible.builtin.shell: findmnt -n -o FSTYPE,OPTIONS /tmp | grep -E '^tmpfs .*noexec'
+  changed_when: false
+  check_mode: false

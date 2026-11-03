@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Managed by Ansible (role: compliance). CIS Level 1 with this design's
+     documented exceptions (D-064). Data: compliance_exceptions in
+     group_vars/all.yml. Host role: {{ ec2_tags.Role }}. -->
+<xccdf:Tailoring xmlns:xccdf="http://checklists.nist.gov/xccdf/1.2" id="xccdf_ahmed_tailoring_cis">
+  <xccdf:benchmark href="{{ compliance_datastream }}"/>
+  <xccdf:version time="2026-11-03T00:00:00">1</xccdf:version>
+  <xccdf:Profile id="{{ compliance_tailored_profile }}" extends="xccdf_org.ssgproject.content_profile_{{ compliance_profile }}">
+    <xccdf:title>ahmed: {{ compliance_profile }} with documented exceptions</xccdf:title>
+{% for rule, e in compliance_exceptions | dictsort if 'all' in e.roles or ec2_tags.Role in e.roles %}
+    <!-- {{ e.reason }} -->
+    <xccdf:select idref="xccdf_org.ssgproject.content_rule_{{ rule }}" selected="false"/>
+{% endfor %}
+  </xccdf:Profile>
+</xccdf:Tailoring>

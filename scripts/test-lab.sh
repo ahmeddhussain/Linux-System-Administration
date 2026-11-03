@@ -286,7 +286,7 @@ sys.exit(1 if bad else 0)'"
 
   echo "== OpenSCAP compliance, CIS Level 1 (D-064)"
   oscap_dir=/srv/logs/reports/openscap
-  remote_check "every host has an OpenSCAP result on util01 from today" util01 "test \$(find $oscap_dir -name results.xml -mtime -1 | wc -l) = 6"
+  remote_check "every host has an OpenSCAP result on util01 from today" util01 "test \$(find $oscap_dir -name results.xml.gz -mtime -1 | wc -l) = 6"
   remote_check "every host meets its role's minimum score" util01 "f=$oscap_dir/summary.txt; test \$(grep -vc '^#' \$f) = 6 && awk '!/^#/ && \$2 < \$3 {bad=1} END {exit bad}' \$f"
   as_check "the security team (laila) can read the reports" laila 10.0.1.12 "test -r $oscap_dir/summary.txt"
 

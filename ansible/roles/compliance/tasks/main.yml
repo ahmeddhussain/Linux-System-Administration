@@ -18,11 +18,20 @@
     group: root
     mode: "0700"
 
+- name: Write the tailoring file (documented exceptions)
+  ansible.builtin.template:
+    src: tailoring.xml.j2
+    dest: "{{ compliance_dir }}/tailoring.xml"
+    owner: root
+    group: root
+    mode: "0600"
+
 # Exit code 2 means "some rules failed", the normal result; 1 is an error.
-- name: Scan against {{ compliance_profile }}
+- name: Scan against the tailored CIS Level 1 profile
   ansible.builtin.command: >-
     oscap xccdf eval
-    --profile xccdf_org.ssgproject.content_profile_{{ compliance_profile }}
+    --tailoring-file {{ compliance_dir }}/tailoring.xml
+    --profile {{ compliance_tailored_profile }}
     --results {{ compliance_dir }}/results.xml
     --report {{ compliance_dir }}/report.html
     {{ compliance_datastream }}
@@ -47,11 +56,25 @@
       pass: "{{ compliance_counts.stdout.split()[1] | int }}"
       fail: "{{ compliance_counts.stdout.split()[2] | int }}"
 
+# About 19 MB a host uncompressed, and util01's logs go into every backup.
+- name: Compress the report and results
+  ansible.builtin.command: gzip -f {{ compliance_dir }}/results.xml {{ compliance_dir }}/report.html
+  changed_when: false
+
+- name: Remove uncompressed results from before compression (control01)
+  ansible.builtin.file:
+    path: "{{ compliance_fetch_dir }}/{{ compliance_fqdn }}/{{ item }}"
+    state: absent
+  loop: [results.xml, report.html]
+  delegate_to: localhost
+  become: false
+
 - name: Bring the results to control01
   ansible.builtin.fetch:
     src: "{{ compliance_dir }}/{{ item }}"
     dest: "{{ compliance_fetch_dir }}/{{ compliance_fqdn }}/{{ item }}"
     flat: true
   loop:
-    - results.xml
-    - report.html
+    - results.xml.gz
+    - report.html.gz
+    - tailoring.xml

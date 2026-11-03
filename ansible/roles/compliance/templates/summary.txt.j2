@@ -3,5 +3,5 @@
 # host score minimum pass fail profile
 {% for h in groups['all'] | sort if hostvars[h].compliance_result is defined %}
 {% set r = hostvars[h].compliance_result %}
-{{ h }}.{{ ipa_domain }} {{ '%.2f' | format(r.score | float) }} {{ compliance_min_score[hostvars[h].ec2_tags.Role] }} {{ r.pass }} {{ r.fail }} {{ 'cis_workstation_l1' if hostvars[h].ec2_tags.Role == 'workstation' else 'cis_server_l1' }}
+{{ h }}.{{ ipa_domain }} {{ '%.2f' | format(r.score | float) }} {{ compliance_min_score[hostvars[h].ec2_tags.Role] }} {{ r.pass }} {{ r.fail }} {{ 'cis_workstation_l1' if hostvars[h].ec2_tags.Role == 'workstation' else 'cis_server_l1' }}+tailoring
 {% endfor %}

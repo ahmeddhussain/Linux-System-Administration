@@ -1,0 +1,19 @@
+---
+- name: Apply sysctl settings
+  ansible.builtin.command: sysctl --system
+  register: hardening_sysctl
+  changed_when: true
+  failed_when: hardening_sysctl.rc != 0 or 'sysctl:' in hardening_sysctl.stderr
+
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted
+
+# Validate the whole configuration first; a broken rsyslog loses logs.
+- name: Restart rsyslog
+  ansible.builtin.shell: rsyslogd -N1 && systemctl restart rsyslog

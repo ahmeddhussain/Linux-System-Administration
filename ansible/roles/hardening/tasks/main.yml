@@ -1,0 +1,21 @@
+---
+# CIS Level 1 fixes, one file per area (D-064). Runs last in site.yml, after
+# every service is built: FreeIPA and the others install with the stock
+# settings, then the host is hardened and the tests prove they still work.
+- name: Kernel settings and core dumps
+  ansible.builtin.import_tasks: kernel.yml
+
+- name: Kernel modules
+  ansible.builtin.import_tasks: modules.yml
+
+- name: Unused services
+  ansible.builtin.import_tasks: services.yml
+
+- name: Cron and at
+  ansible.builtin.import_tasks: cron.yml
+
+- name: Mounts (/dev/shm, /tmp)
+  ansible.builtin.import_tasks: mounts.yml
+
+- name: Logging (journald, rsyslog, firewalld loopback)
+  ansible.builtin.import_tasks: logging.yml

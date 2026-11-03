@@ -1,0 +1,45 @@
+---
+# journald_compress, journald_storage, journald_disable_forward_to_syslog.
+# rsyslog reads the journal itself (imjournal), so forwarding is not used.
+- name: Create the journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Persistent, compressed journal; rsyslog reads it directly
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/60-ahmed.conf
+    content: |
+      # Managed by Ansible (role: hardening) (D-064)
+      [Journal]
+      Storage=persistent
+      Compress=yes
+      ForwardToSyslog=no
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart journald
+
+# rsyslog_filecreatemode: local log files not readable by everyone.
+- name: Local log files are created 0640
+  ansible.builtin.copy:
+    dest: /etc/rsyslog.d/00-ahmed-filecreatemode.conf
+    content: |
+      # Managed by Ansible (role: hardening) (D-064)
+      $FileCreateMode 0640
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Restart rsyslog
+
+# firewalld_loopback_traffic_trusted
+- name: Trust loopback traffic in the host firewall
+  ansible.posix.firewalld:
+    zone: trusted
+    interface: lo
+    permanent: true
+    immediate: true
+    state: enabled

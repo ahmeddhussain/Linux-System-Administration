@@ -1,0 +1,11 @@
+# Managed by Ansible (role: hardening). Kernel hardening (D-064, CIS Level 1).
+# Network settings come in a later batch.
+
+# sysctl_kernel_dmesg_restrict: only root reads the kernel log
+kernel.dmesg_restrict = 1
+# sysctl_kernel_yama_ptrace_scope: a process may only trace its children
+kernel.yama.ptrace_scope = 1
+# sysctl_kernel_randomize_va_space: full address space randomization
+kernel.randomize_va_space = 2
+# sysctl_fs_suid_dumpable: no core dumps from setuid programs
+fs.suid_dumpable = 0
