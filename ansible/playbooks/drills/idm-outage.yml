@@ -1,0 +1,95 @@
+---
+# Incident drill (D-067): the identity server stops. What keeps working from
+# SSSD's cache, what breaks, and how long until every client is back.
+#   scripts/lab.sh drill idm-outage
+- name: "Inject: stop every IPA service on idm01"
+  hosts: role_idm
+  gather_facts: false
+  tasks:
+    - name: Start the clock
+      ansible.builtin.set_fact:
+        drill_t0: "{{ lookup('pipe', 'date +%s') }}"
+
+    - name: ipactl stop
+      ansible.builtin.command: ipactl stop
+      changed_when: true
+
+- name: "Observe: clients while IPA is down"
+  hosts: "ipaclients:!role_gateway"
+  gather_facts: false
+  tasks:
+    # SSSD notices on its next request to the server; make one now.
+    - name: Let SSSD find the server unreachable
+      ansible.builtin.shell: getent passwd drill-no-such-user > /dev/null; sleep 5
+      changed_when: false
+      failed_when: false
+
+    - name: Known users still resolve (SSSD cache)
+      ansible.builtin.command: id ahmed
+      register: drill_cached_user
+      changed_when: false
+      failed_when: false
+
+    - name: Company host names still resolve (IPA DNS)
+      ansible.builtin.command: getent hosts util01.ahmed.internal
+      register: drill_dns
+      changed_when: false
+      failed_when: false
+
+    - name: SSSD state
+      ansible.builtin.shell: "sssctl domain-status {{ ipa_domain }} -o | grep -o 'Online status: .*'"
+      register: drill_sssd_state
+      changed_when: false
+      failed_when: false
+
+- name: "Recover: start IPA again"
+  hosts: role_idm
+  gather_facts: false
+  tasks:
+    - name: ipactl start
+      ansible.builtin.command: ipactl start
+      changed_when: true
+
+    - name: IPA answers
+      ansible.builtin.command: ipactl status
+      changed_when: false
+
+    - name: Clock at restart
+      ansible.builtin.set_fact:
+        drill_t1: "{{ lookup('pipe', 'date +%s') }}"
+
+- name: "Measure: every client online again"
+  hosts: "ipaclients:!role_gateway"
+  gather_facts: false
+  tasks:
+    # No help from us: how long SSSD itself takes to go back online.
+    - name: Wait until SSSD is online (up to 10 minutes)
+      ansible.builtin.shell: "sssctl domain-status {{ ipa_domain }} -o | grep -q 'Online status: Online'"
+      register: drill_online
+      retries: 60
+      delay: 10
+      until: drill_online.rc == 0
+      changed_when: false
+
+    - name: Recovery time for this client
+      ansible.builtin.set_fact:
+        drill_recovered_s: "{{ lookup('pipe', 'date +%s') | int - hostvars[groups['role_idm'][0]].drill_t1 | int }}"
+
+- name: "Report"
+  hosts: "ipaclients:!role_gateway"
+  gather_facts: false
+  tasks:
+    - name: Summarize
+      ansible.builtin.set_fact:
+        drill_line: >-
+          {{ lookup('pipe', 'date -u +%FT%TZ') }} idm-outage (IPA down
+          {{ hostvars[groups['role_idm'][0]].drill_t1 | int - hostvars[groups['role_idm'][0]].drill_t0 | int }}s):
+          {% for h in ansible_play_hosts | sort %}{{ h }}
+          [cache {{ 'ok' if hostvars[h].drill_cached_user.rc == 0 else 'FAILED' }},
+          dns {{ 'ok' if hostvars[h].drill_dns.rc == 0 else 'FAILED' }},
+          sssd {{ hostvars[h].drill_sssd_state.stdout | default('?') | regex_replace('Online status: ', '') }},
+          back after {{ hostvars[h].drill_recovered_s }}s] {% endfor %}
+      run_once: true
+
+    - name: Record
+      ansible.builtin.import_tasks: report.yml

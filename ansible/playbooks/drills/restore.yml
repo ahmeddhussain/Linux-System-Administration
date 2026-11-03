@@ -1,0 +1,16 @@
+---
+# Restore drill (D-066): RPO and RTO measured against their targets, the
+# restored data proved (content, owner by name, SELinux label, full tree).
+#   scripts/lab.sh drill restore
+- name: "Restore drill on util01"
+  hosts: role_util
+  gather_facts: false
+  tasks:
+    - name: Run the drill (ahmed-backup drill)
+      ansible.builtin.command: /usr/local/sbin/ahmed-backup drill
+      register: drill_restore
+      changed_when: true
+
+    - name: Drill result
+      ansible.builtin.debug:
+        msg: "{{ drill_restore.stdout_lines | last }}"

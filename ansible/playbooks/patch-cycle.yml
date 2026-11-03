@@ -1,0 +1,43 @@
+---
+# Scheduled patch cycle in rings (D-065): a canary first, the company's
+# identity server last, each ring checked before the next starts. A failed
+# host stops the cycle; the rest stay on the old, working level.
+#   scripts/lab.sh patch              all updates
+#   scripts/lab.sh patch --security   security errata only (urgent cycle)
+# Rollback and the cadence: docs/runbooks/patching.md.
+
+- name: "Ring 1: canary (ws-dev01)"
+  ansible.builtin.import_playbook: patch.yml
+  vars:
+    patch_hosts: ws-dev01
+
+- name: "Ring 1 gate"
+  ansible.builtin.import_playbook: patch-gate.yml
+  vars:
+    gate_ring: ws-dev01
+
+- name: "Ring 2: other workstations, util01 (homes, proxy, logs)"
+  ansible.builtin.import_playbook: patch.yml
+  vars:
+    patch_hosts: "role_workstation:role_util:!ws-dev01"
+
+- name: "Ring 2 gate"
+  ansible.builtin.import_playbook: patch-gate.yml
+  vars:
+    gate_ring: "role_workstation:role_util:!ws-dev01"
+
+- name: "Ring 3: VPN gateway and identity server"
+  ansible.builtin.import_playbook: patch.yml
+  vars:
+    patch_hosts: "role_gateway:role_idm"
+
+- name: "Ring 3 gate"
+  ansible.builtin.import_playbook: patch-gate.yml
+  vars:
+    gate_ring: "role_gateway:role_idm"
+
+# Last: the node running this playbook; it reports, never reboots itself.
+- name: "Ring 4: control node"
+  ansible.builtin.import_playbook: patch.yml
+  vars:
+    patch_hosts: role_control

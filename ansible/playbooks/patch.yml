@@ -1,28 +1,51 @@
 ---
-# Bring every host to the same patch level, then reboot when the OS says it
-# is required. Hosts are patched two at a time so no machine, including the
-# control node, is overloaded. Used for routine patching and as the first
-# step of site.yml for new or rebuilt hosts.
-# site.yml patches util01 first (patch_hosts), because workstations can
-# reach package repositories only through Squid on util01 (INC-004).
-- name: Patch all hosts
+# Bring hosts to the same patch level, then reboot when the OS says it is
+# required (D-065). Used three ways:
+#   - first step of site.yml for new or rebuilt hosts; site.yml patches
+#     util01 first (patch_hosts), because workstations reach package
+#     repositories only through Squid on util01 (INC-004)
+#   - by patch-cycle.yml, ring by ring (scripts/lab.sh patch)
+#   - security errata only: -e patch_security_only=true
+# Hosts are patched two at a time so no machine, including the control
+# node, is overloaded. Every run leaves a record on the host
+# (/var/log/ahmed-patch.log) and in syslog, so on util01 too (D-059).
+- name: Patch hosts
   hosts: "{{ patch_hosts | default('all') }}"
   serial: 2
+  vars:
+    patch_security_only: false
+    patch_min_free_mb: 1024
   tasks:
     - name: Install the reboot-check tool
       ansible.builtin.dnf:
         name: dnf-utils
         state: present
 
-    - name: Update all packages to the latest available
+    # Before: enough space for the transaction, and nothing already broken
+    # (a failure after patching must be the patch's, not an old one).
+    - name: Check free space on / and /var
+      ansible.builtin.shell: df --output=avail -m / /var | tail -n +2 | sort -n | head -1
+      register: patch_free_mb
+      changed_when: false
+      failed_when: patch_free_mb.stdout | int < patch_min_free_mb
+
+    - name: List services that have already failed (reported, not fatal)
+      ansible.builtin.shell: systemctl list-units --state=failed --no-legend --plain | awk '{print $1}'
+      register: patch_failed_before
+      changed_when: false
+
+    - name: Remember the package history position
+      ansible.builtin.shell: dnf -q history list | awk '$1 ~ /^[0-9]+$/ {print $1; exit}'
+      register: patch_history_before
+      changed_when: false
+
+    - name: Update {{ 'security errata only' if patch_security_only | bool else 'all packages' }}
       ansible.builtin.dnf:
         name: "*"
         state: latest
+        security: "{{ patch_security_only | bool }}"
         update_cache: true
-
-    - name: Confirm systemd is healthy before any reboot
-      ansible.builtin.command: systemctl --version
-      changed_when: false
+      register: patch_update
 
     - name: Confirm the SSH client and server configurations still parse
       ansible.builtin.shell: ssh -G localhost > /dev/null && /usr/sbin/sshd -t
@@ -47,3 +70,40 @@
       when:
         - patch_reboot_check.rc == 1
         - inventory_hostname == 'control01'
+
+    # After: no service failed that was fine before. A host that fails here
+    # stops patch-cycle.yml before the next ring.
+    - name: Wait for the boot to settle, then check for newly failed services
+      ansible.builtin.shell: |
+        systemctl is-system-running --wait > /dev/null || true
+        systemctl list-units --state=failed --no-legend --plain | awk '{print $1}'
+      register: patch_failed_after
+      changed_when: false
+      failed_when: patch_failed_after.stdout_lines | difference(patch_failed_before.stdout_lines) | length > 0
+
+    - name: Record what this run changed
+      ansible.builtin.shell: |
+        after=$(dnf -q history list | awk '$1 ~ /^[0-9]+$/ {print $1; exit}')
+        if [ "$after" = "{{ patch_history_before.stdout }}" ]; then
+          summary="no updates"
+        else
+          summary="dnf history $after: $(dnf -q history info "$after" | grep -cE '^\s+(Upgrade|Install|Upgraded)\b') package changes"
+        fi
+        line="$(date -u +%FT%TZ) {{ 'security' if patch_security_only | bool else 'full' }} $summary; reboot={{ 'yes' if patch_reboot_check.rc == 1 else 'no' }}; kernel=$(uname -r)"
+        echo "$line" >> /var/log/ahmed-patch.log
+        logger -t ahmed-patch "$line"
+        echo "$line"
+      register: patch_record
+      changed_when: false
+
+    - name: Show the record
+      ansible.builtin.debug:
+        msg: "{{ patch_record.stdout }}"
+
+    # Patches are authorized changes: AIDE's baseline follows them (D-064).
+    - name: Re-baseline AIDE after updates
+      ansible.builtin.shell: |
+        command -v aide > /dev/null || exit 0
+        /usr/sbin/aide --init > /dev/null && cp /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+      when: patch_update is changed
+      changed_when: true

@@ -196,6 +196,7 @@ for t, k in yaml.safe_load(sys.stdin)["test_vpn_peer_private_keys"].items():
   echo "== Patch level"
   check "systemd is the same version everywhere"   "[ \"\$(ansible all -m command -a \"rpm -q --qf '%{VERSION}-%{RELEASE}' systemd\" -o | sed 's/.*(stdout) //' | sort -u | wc -l)\" = 1 ]"
   check "openssl-libs is the same version everywhere" "[ \"\$(ansible all -m command -a \"rpm -q --qf '%{VERSION}-%{RELEASE}' openssl-libs\" -o | sed 's/.*(stdout) //' | sort -u | wc -l)\" = 1 ]"
+  remote_check "every host keeps a patch record (D-065)" all 'tail -1 /var/log/ahmed-patch.log | grep -qE "^[0-9-]+T[0-9:]+Z (full|security) .*kernel="'
   check "no host needs a reboot"                   "ansible all -b -m command -a 'dnf needs-restarting -r'"
 
   echo "== VPN gateway (gw01)"
@@ -301,6 +302,10 @@ sys.exit(1 if bad else 0)'"
   remote_check "every host has an OpenSCAP result on util01 from today" util01 "test \$(find $oscap_dir -name results.xml.gz -mtime -1 | wc -l) = 6"
   remote_check "every host meets its role's minimum score" util01 "f=$oscap_dir/summary.txt; test \$(grep -vc '^#' \$f) = 6 && awk '!/^#/ && \$2 < \$3 {bad=1} END {exit bad}' \$f"
   as_check "the security team (laila) can read the reports" laila 10.0.1.12 "test -r $oscap_dir/summary.txt"
+
+  echo "== Restore drill (D-066)"
+  remote_check "the last restore drill passed (RPO, RTO, data proved)" util01 'tail -1 /srv/logs/reports/drills/restore-drills.log | grep -q "restore drill PASS"'
+  as_check "the security team can read the drill reports" laila 10.0.1.12 "test -r /srv/logs/reports/drills/restore-drills.log"
 
   echo "== NFS home directories (D-058): util01 -> workstations"
   check "util01 exports homes, NFSv4 only"          "ansible util01 -b -m shell -a 'exportfs -s | grep -q /export/home && grep -q -- -3 /proc/fs/nfsd/versions'"

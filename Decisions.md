@@ -790,3 +790,72 @@ Every design choice: what we chose, what else we considered, and why.
   idempotent. Zero failures is not realistic with deliberate design
   choices (for example NFS sec=sys, D-058); a minimum that only rises
   keeps fixes from silently regressing.
+
+## D-065: Patching cadence - monthly cycle in rings, urgent security cycle
+*Decided by Claude on Ahmed's delegation (2026-11-03); for his review.*
+- **Chosen:** a monthly cycle and an urgent one, both `scripts/lab.sh
+  patch` (`--security` for errata only). The cycle (`patch-cycle.yml`)
+  patches in rings: ws-dev01 (canary); the other workstations and util01;
+  gw01 and idm01; control01 last (it reports a needed reboot instead of
+  rebooting itself). A gate after each ring (`patch-gate.yml`) checks
+  that every host finished and that IPA, SSSD, util01's services and the
+  VPN still answer; any failure ends the cycle, so later rings stay on the
+  old, working level. Each host is checked before (free space, services
+  already failed) and after (no service newly failed); every run appends
+  a record (dnf history ID, package changes, reboot, kernel) to
+  `/var/log/ahmed-patch.log` and to syslog, so to util01 (D-059); AIDE's
+  baseline is rebuilt after updates (D-064). The cadence, the urgent
+  rule and the rollback are in `docs/runbooks/patching.md`.
+- **Alternatives:** keep patching only as site.yml's first step; all
+  hosts at once; dnf-automatic on every host; EBS snapshots before
+  each cycle
+- **Why:** rings are how production limits the blast radius of a bad
+  update: the canary is the least critical host, the identity server is
+  patched only after everything else proved the update. dnf-automatic
+  patches without any gate or order. Snapshots cost money while the lab is
+  rebuilt from code anyway; `dnf history undo` and the previous kernel
+  are the rollback. In this lab every session also starts by patching
+  (site.yml), so the monthly cycle is demonstrated with `lab.sh patch`.
+
+## D-066: Restore drills - scripted, measured against RPO and RTO targets
+*Decided by Claude on Ahmed's delegation (2026-11-03); for his review.*
+- **Chosen:** `ahmed-backup drill` on util01 (`scripts/lab.sh drill
+  restore`; also run by every `lab.sh up`/`resume`, so the tests always
+  see a fresh result). It measures the RPO (time since the data was last
+  safe: the later of the last backup and the volume's creation), plants a
+  marker file in a user's home, takes a real backup (timed), deletes the
+  marker and restores that one file (single-file RTO; content, owner by
+  name and SELinux label checked), then restores all data into a scratch
+  directory (full RTO) and compares homes and team shares with the live
+  data. Targets in code (`util_storage` defaults): RPO 24 h (the daily
+  timer), single file 5 min, all data 15 min. Each run appends a PASS or
+  FAIL line to `/srv/logs/reports/drills/restore-drills.log` (security
+  team) and to syslog. Rebuilding the whole lab from Git is the disaster
+  recovery for everything else (identity, configuration), timed by
+  `lab.sh up`.
+- **Alternatives:** restore drills by hand from the runbook; restoring
+  over the live data; a separate restore host
+- **Why:** a backup is only proven by a restore, and an RTO is only real
+  when it is measured. Restoring the marker and into scratch proves the
+  path end to end without risking live data. Running it with every
+  resume makes a broken backup visible the same day.
+
+## D-067: Incident drills - planned failures, scripted, with reports
+*Decided by Claude on Ahmed's delegation (2026-11-03); for his review.*
+- **Chosen:** three drills in `ansible/playbooks/drills/`, each inject,
+  observe, recover, measure, and one result line in
+  `/srv/logs/reports/drills/incident-drills.log` and syslog; a written
+  report per drill in `docs/drills/`:
+  `idm-outage` (all IPA services stopped: what works from SSSD's cache,
+  what breaks, time until every client is online again),
+  `logs-disk-full` (util01's log volume filled: are messages lost, do
+  they arrive after the space is freed), `package-rollback` (the
+  runbook's downgrade on the canary, health check, patch forward). Run
+  with `scripts/lab.sh drill <name>`; not part of every run, because
+  they cause real outages.
+- **Alternatives:** tabletop exercises only; chaos tooling (random
+  failures); drills without automation
+- **Why:** scripted drills are repeatable and their numbers comparable
+  between runs; each one checks a promise the design makes (SSSD cache,
+  disk queues, rollback). Random failures teach less than chosen ones in
+  a six-host lab.

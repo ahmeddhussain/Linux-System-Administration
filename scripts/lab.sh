@@ -6,6 +6,8 @@
 #   scripts/lab.sh resume           redo configuration and tests on existing infrastructure
 #   scripts/lab.sh verify [--full]  run the tests (--full adds the slow idempotency run)
 #   scripts/lab.sh compliance       rerun the OpenSCAP scan and publish the results (D-064)
+#   scripts/lab.sh patch [--security]  patch cycle in rings, then the tests (D-065)
+#   scripts/lab.sh drill <name>     restore | idm-outage | logs-disk-full | package-rollback (D-066, D-067)
 #   scripts/lab.sh status           show the instances
 #   scripts/lab.sh down [-y]        disconnect the VPN and destroy everything
 #
@@ -25,9 +27,10 @@ source "$SCRIPT_DIR/lib/configure.sh"
 
 AUTO_APPROVE=""
 FULL=""
+SECURITY=""
 
 usage() {
-  sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -41,6 +44,7 @@ cmd_resume() {
   configure_hosts
   reboot_control01_if_needed
   run_compliance || warn "Compliance scan failed; rerun with: scripts/lab.sh compliance"
+  run_drill restore || warn "Restore drill failed; see /srv/logs/reports/drills/ on util01"
   run_tests || warn "Some checks failed; see the FAIL lines above."
   "$SCRIPT_DIR/vpn-client.sh" refresh || warn "VPN client not refreshed; run scripts/vpn-client.sh refresh"
   log "Ready. Connect with: scripts/vpn-client.sh connect"
@@ -63,6 +67,7 @@ for arg in "$@"; do
   case "$arg" in
     -y) AUTO_APPROVE=1 ;;
     --full) FULL=1 ;;
+    --security) SECURITY=1 ;;
   esac
 done
 
@@ -71,6 +76,8 @@ case "$cmd" in
   resume) cmd_resume ;;
   verify) run_tests ;;
   compliance) run_compliance ;;
+  patch) run_patch_cycle && run_tests ;;
+  drill) run_drill "${1:-}" ;;
   status) infra_status ;;
   down) cmd_down ;;
   *) usage ;;

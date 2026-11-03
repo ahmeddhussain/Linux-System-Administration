@@ -1,0 +1,38 @@
+---
+# Gate between patch rings (D-065): every host of the ring finished its
+# patch play, and the company's services still answer. Any failure ends the
+# whole cycle (any_errors_fatal), so the next ring keeps its working level.
+- name: "Gate after patching {{ gate_ring }}"
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Every host of the ring is still healthy in this run
+      ansible.builtin.assert:
+        that: query('inventory_hostnames', gate_ring) | difference(ansible_play_hosts) | length == 0
+        fail_msg: "Patching failed on: {{ query('inventory_hostnames', gate_ring) | difference(ansible_play_hosts) }}"
+      run_once: true
+
+    - name: Identity answers (IPA services on idm01)
+      ansible.builtin.command: ipactl status
+      changed_when: false
+      when: "'role_idm' in group_names"
+
+    - name: SSSD is online on every client
+      ansible.builtin.shell: "sssctl domain-status {{ ipa_domain }} -o | grep -q 'Online status: Online'"
+      changed_when: false
+      when: "'ipaclients' in group_names"
+      register: gate_sssd
+      retries: 6
+      delay: 10
+      until: gate_sssd.rc == 0
+
+    - name: util01 still serves homes, the proxy and the logs
+      ansible.builtin.shell: systemctl is-active --quiet nfs-server squid rsyslog
+      changed_when: false
+      when: "'role_util' in group_names"
+
+    - name: The VPN gateway still listens
+      ansible.builtin.shell: systemctl is-active --quiet wg-quick@wg0 wstunnel
+      changed_when: false
+      when: "'role_gateway' in group_names"

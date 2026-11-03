@@ -1,0 +1,62 @@
+---
+# Incident drill (D-067): "the last update broke a tool on the canary".
+# Practice the runbook rollback (docs/runbooks/patching.md) on one package,
+# prove the host is healthy on the old version, then patch forward again.
+#   scripts/lab.sh drill package-rollback
+- name: "Package rollback drill on the canary"
+  hosts: ws-dev01
+  vars:
+    # Has older versions in the repository and nothing depends on its version.
+    drill_package: rsync
+  tasks:
+    - name: Version before
+      ansible.builtin.command: rpm -q {{ drill_package }}
+      register: drill_before
+      changed_when: false
+
+    - name: Clock at the "bad update" report
+      ansible.builtin.set_fact:
+        drill_t0: "{{ lookup('pipe', 'date +%s') }}"
+
+    - name: "Roll back: downgrade to the previous version"
+      ansible.builtin.command: dnf -y -q downgrade {{ drill_package }}
+      register: drill_downgrade
+      changed_when: true
+
+    - name: Version after the rollback
+      ansible.builtin.command: rpm -q {{ drill_package }}
+      register: drill_rolled_back
+      changed_when: false
+      failed_when: drill_rolled_back.stdout == drill_before.stdout
+
+    - name: Clock at rollback done
+      ansible.builtin.set_fact:
+        drill_t1: "{{ lookup('pipe', 'date +%s') }}"
+
+    - name: The host is healthy on the old version
+      ansible.builtin.command: systemctl list-units --state=failed --no-legend --plain
+      register: drill_failed
+      changed_when: false
+      failed_when: drill_failed.stdout | length > 0
+
+    # Normally only after the fix is released; here straight away.
+    - name: "Patch forward again"
+      ansible.builtin.dnf:
+        name: "{{ drill_package }}"
+        state: latest
+
+    - name: Version at the end
+      ansible.builtin.command: rpm -q {{ drill_package }}
+      register: drill_after
+      changed_when: false
+      failed_when: drill_after.stdout != drill_before.stdout
+
+    - name: Summarize
+      ansible.builtin.set_fact:
+        drill_line: >-
+          {{ lookup('pipe', 'date -u +%FT%TZ') }} package-rollback on ws-dev01:
+          {{ drill_before.stdout }} -> {{ drill_rolled_back.stdout }} in
+          {{ drill_t1 | int - drill_t0 | int }}s, healthy, back to {{ drill_after.stdout }}; PASS
+
+    - name: Record
+      ansible.builtin.import_tasks: report.yml

@@ -3,6 +3,7 @@
 #   ahmed-backup            back up homes and logs to the "latest" object
 #   ahmed-backup restore    restore the latest backup (used on a new volume)
 #   ahmed-backup verify     download the latest backup and read it end to end
+#   ahmed-backup drill      restore drill: measure RPO and RTO, prove the data (D-066)
 # Owners are stored and restored by name, not number: a rebuilt IPA gives
 # users and groups new numeric IDs (2026-11-02), and names map them back.
 set -euo pipefail
@@ -17,8 +18,16 @@ case "${1:-backup}" in
     # .nfs* files are NFS "silly renames": files deleted while a client still
     # has them open. They are already gone for the user, and util01 cannot
     # open them while they are locked (backup failure, 2026-11-02).
+    # tar exit 1 means "a file changed while it was read": the central logs
+    # grow all the time (D-059, D-063). That is a warning; 2 is a failure.
+    set +o pipefail
     tar --create --gzip --acls --xattrs --selinux --exclude='.nfs*' -C / "${dirs[@]}" \
       | aws s3 cp --only-show-errors - "$target"
+    status=("${PIPESTATUS[@]}")
+    set -o pipefail
+    [ "${status[1]}" -eq 0 ] || { logger -t ahmed-backup "backup upload FAILED (aws ${status[1]})"; exit 1; }
+    [ "${status[0]}" -le 1 ] || { logger -t ahmed-backup "backup FAILED (tar ${status[0]})"; exit 1; }
+    [ "${status[0]}" -eq 0 ] || logger -t ahmed-backup "warning: files changed while being backed up (logs)"
     logger -t ahmed-backup "backup to $target done in $(( $(date +%s) - start ))s"
     ;;
   restore)
@@ -35,5 +44,67 @@ case "${1:-backup}" in
     aws s3 cp --only-show-errors "$target" - | tar --list --gzip > /dev/null
     echo "backup at $target is readable"
     ;;
-  *) echo "usage: $0 [backup|restore|verify]" >&2; exit 2 ;;
+  drill)
+    # Restore drill (D-066). Loses nothing: the "lost" file is a marker made
+    # for the drill, and the full restore goes to a scratch directory.
+    reports={{ util_drill_report_dir }}
+    scratch=/var/tmp/restore-drill
+    user={{ util_drill_user }}
+    marker="export/home/$user/.restore-drill"
+    bucket="${target#s3://}"; bucket="${bucket%%/*}"
+    result=PASS; notes=""
+    fail() { result=FAIL; notes="$notes $1;"; }
+
+    # RPO: how much work a loss right now would cost. Data at risk is what
+    # changed since the last backup, or since this volume was created and
+    # restored (the lab is down, and nothing changes, between sessions).
+    last=$(aws s3api head-object --bucket "$bucket" --key "{{ util_backup_key }}" \
+      --query LastModified --output text 2>/dev/null || echo none)
+    created=$(date -d "$(lvs --noheadings -o lv_time {{ util_storage_vg }}/lv_home | xargs)" +%s)
+    if [ "$last" = none ]; then since=$created
+    else since=$(date -d "$last" +%s); [ "$created" -gt "$since" ] && since=$created; fi
+    rpo=$(( $(date +%s) - since ))
+    [ "$rpo" -le {{ util_drill_rpo_target_s }} ] || fail "RPO ${rpo}s over target"
+
+    # A file only this drill knows, owned by the user (restored by name).
+    head -c 4096 /dev/urandom | base64 > "/$marker"
+    chown "$user:" "/$marker"; chmod 0600 "/$marker"
+    sum=$(sha256sum "/$marker" | cut -d' ' -f1)
+
+    t0=$(date +%s); "$0" backup; backup_s=$(( $(date +%s) - t0 ))
+
+    # The user deletes it and opens a ticket: restore that one file.
+    rm -f "/$marker"
+    t0=$(date +%s)
+    aws s3 cp --only-show-errors "$target" - \
+      | tar --extract --gzip --acls --xattrs --selinux -C / "$marker"
+    file_s=$(( $(date +%s) - t0 ))
+    [ "$(sha256sum "/$marker" 2>/dev/null | cut -d' ' -f1)" = "$sum" ] || fail "file content differs"
+    [ "$(stat -c %U "/$marker" 2>/dev/null)" = "$user" ] || fail "file owner wrong"
+    restorecon -n -v "/$marker" | grep -q . && fail "file SELinux label wrong"
+
+    # Disaster: util01's data volume is gone. Restore everything (to scratch).
+    rm -rf "$scratch"; mkdir -p "$scratch"
+    t0=$(date +%s)
+    aws s3 cp --only-show-errors "$target" - \
+      | tar --extract --gzip --acls --xattrs --selinux -C "$scratch"
+    full_s=$(( $(date +%s) - t0 ))
+    size=$(du -sh "$scratch" | cut -f1)
+    for d in export/home export/teams; do
+      diff -rq --no-dereference -x '.nfs*' "$scratch/$d" "/$d" > /dev/null || fail "$d differs from live"
+    done
+    rm -rf "$scratch" "/$marker"
+
+    [ "$file_s" -le {{ util_drill_rto_file_target_s }} ] || fail "single-file RTO ${file_s}s over target"
+    [ "$full_s" -le {{ util_drill_rto_full_target_s }} ] || fail "full RTO ${full_s}s over target"
+
+    line="$(date -u +%FT%TZ) restore drill $result: RPO ${rpo}s (target {{ util_drill_rpo_target_s }}), backup ${backup_s}s, single-file RTO ${file_s}s (target {{ util_drill_rto_file_target_s }}), full RTO ${full_s}s for $size (target {{ util_drill_rto_full_target_s }});$notes"
+    install -d -m 0750 -g {{ util_drill_report_group }} "$reports"
+    echo "$line" >> "$reports/restore-drills.log"
+    chgrp {{ util_drill_report_group }} "$reports/restore-drills.log"; chmod 0640 "$reports/restore-drills.log"
+    logger -t ahmed-drill "$line"
+    echo "$line"
+    [ "$result" = PASS ]
+    ;;
+  *) echo "usage: $0 [backup|restore|verify|drill]" >&2; exit 2 ;;
 esac

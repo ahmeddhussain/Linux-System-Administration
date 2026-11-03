@@ -1,0 +1,18 @@
+---
+# Shared by the drills (D-067): append one result line on util01, where the
+# security team reads it, and send it to syslog. Expects drill_line.
+- name: Record the drill result on util01
+  ansible.builtin.shell: |
+    install -d -m 0750 -g security /srv/logs/reports/drills
+    echo "{{ drill_line }}" >> /srv/logs/reports/drills/incident-drills.log
+    chgrp security /srv/logs/reports/drills/incident-drills.log
+    chmod 0640 /srv/logs/reports/drills/incident-drills.log
+    logger -t ahmed-drill "{{ drill_line }}"
+  delegate_to: util01
+  run_once: true
+  changed_when: true
+
+- name: Drill result
+  ansible.builtin.debug:
+    msg: "{{ drill_line }}"
+  run_once: true

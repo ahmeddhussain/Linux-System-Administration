@@ -45,6 +45,21 @@ run_compliance() {
   run_on_control01 compliance "git -C ~/ahmed-infra pull -q --ff-only && $REMOTE_ANSIBLE && ansible-playbook playbooks/compliance.yml"
 }
 
+# Patch cycle in rings (D-065); --security applies security errata only.
+run_patch_cycle() {
+  log "Patch cycle in rings${SECURITY:+ (security errata only)}"
+  run_on_control01 patch "git -C ~/ahmed-infra pull -q --ff-only && $REMOTE_ANSIBLE && ansible-playbook playbooks/patch-cycle.yml${SECURITY:+ -e patch_security_only=true}"
+}
+
+# Restore and incident drills (D-066, D-067): ansible/playbooks/drills/.
+run_drill() {
+  local name="$1"
+  [ -f "$ROOT/ansible/playbooks/drills/$name.yml" ] && [ "$name" != report ] \
+    || die "Unknown drill '$name'. Choose: restore, idm-outage, logs-disk-full, package-rollback"
+  log "Drill: $name"
+  run_on_control01 "drill-$name" "git -C ~/ahmed-infra pull -q --ff-only && $REMOTE_ANSIBLE && ansible-playbook playbooks/drills/$name.yml"
+}
+
 run_tests() {
   log "Verification tests"
   ssh control01 'cat > ~/test-lab.sh' < "$ROOT/scripts/test-lab.sh"

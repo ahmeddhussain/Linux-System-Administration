@@ -19,3 +19,13 @@ util_backup_bucket_prefix: ahmed-infra-backups
 util_backup_key: util01/latest.tar.gz
 util_backup_region: us-east-1
 util_backup_time: "*-*-* 02:00:00"
+
+# Restore drills (D-066): targets checked by "ahmed-backup drill".
+# RPO: the daily backup timer, so at most a day of work is lost.
+util_drill_rpo_target_s: 86400
+# RTO: a user's lost file back within 5 minutes; all data within 15.
+util_drill_rto_file_target_s: 300
+util_drill_rto_full_target_s: 900
+util_drill_user: ahmed
+util_drill_report_dir: /srv/logs/reports/drills
+util_drill_report_group: security

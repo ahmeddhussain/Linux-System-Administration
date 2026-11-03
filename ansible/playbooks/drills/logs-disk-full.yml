@@ -1,0 +1,71 @@
+---
+# Incident drill (D-067): the central log volume on util01 fills up. Are
+# messages lost while it is full, and do they arrive once space is back?
+#   scripts/lab.sh drill logs-disk-full
+- name: "Inject: fill /srv/logs on util01"
+  hosts: role_util
+  gather_facts: false
+  tasks:
+    - name: Fill the log volume (leaves a few MB for the filesystem itself)
+      ansible.builtin.shell: |
+        avail=$(df --output=avail -m /srv/logs | tail -1)
+        fallocate -l $(( avail - 2 ))M /srv/logs/drill-fill
+        df --output=pcent /srv/logs | tail -1
+      register: drill_fill
+      changed_when: true
+
+- name: "Observe: a message from every client while the disk is full"
+  hosts: all:!role_util
+  gather_facts: false
+  tasks:
+    - name: Unique message per run
+      ansible.builtin.set_fact:
+        drill_token: "diskfull-{{ lookup('pipe', 'date +%s') }}"
+      run_once: true
+
+    - name: Send it
+      ansible.builtin.command: logger -t ahmed-drill-disk {{ drill_token }}
+      changed_when: false
+
+- name: "Observe and recover on util01"
+  hosts: role_util
+  gather_facts: false
+  vars:
+    drill_token: "{{ hostvars[groups['all'] | difference(groups['role_util']) | first].drill_token }}"
+    drill_clients: "{{ groups['all'] | difference(groups['role_util']) | length }}"
+  tasks:
+    - name: Messages stored while full
+      ansible.builtin.shell: sleep 15; grep -l {{ drill_token }} /srv/logs/*/ahmed-drill-disk.log 2>/dev/null | wc -l
+      register: drill_stored_full
+      changed_when: false
+
+    - name: "Recover: free the space"
+      ansible.builtin.file:
+        path: /srv/logs/drill-fill
+        state: absent
+
+    - name: Clock at recovery
+      ansible.builtin.set_fact:
+        drill_t1: "{{ lookup('pipe', 'date +%s') }}"
+
+    # The clients' disk queues retry every 10 s (D-059).
+    - name: Wait for every message to arrive (up to 5 minutes)
+      ansible.builtin.shell: grep -l {{ drill_token }} /srv/logs/*/ahmed-drill-disk.log 2>/dev/null | wc -l
+      register: drill_stored_after
+      retries: 30
+      delay: 10
+      until: drill_stored_after.stdout | int >= drill_clients | int
+      failed_when: false
+      changed_when: false
+
+    - name: Summarize
+      ansible.builtin.set_fact:
+        drill_line: >-
+          {{ lookup('pipe', 'date -u +%FT%TZ') }} logs-disk-full: volume at
+          {{ drill_fill.stdout | trim }}; {{ drill_stored_full.stdout }}/{{ drill_clients }}
+          messages stored while full; {{ drill_stored_after.stdout }}/{{ drill_clients }}
+          after recovery ({{ lookup('pipe', 'date +%s') | int - drill_t1 | int }}s);
+          {{ 'NO LOSS' if drill_stored_after.stdout | int >= drill_clients | int else 'MESSAGES LOST' }}
+
+    - name: Record
+      ansible.builtin.import_tasks: report.yml
