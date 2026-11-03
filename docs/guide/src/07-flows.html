@@ -1,0 +1,57 @@
+<h1>7. How it works end to end</h1>
+<p class="part-intro">The best way to understand the design is to follow real requests through every layer. These are also the stories to tell in an interview.</p>
+
+<h2>7.1 sara logs into ws-ops01 from home</h2>
+<ol>
+<li><b>VPN.</b> On her laptop, wstunnel opens a TLS connection to gw01's public IP on TCP 443. WireGuard's UDP packets travel inside it. gw01's wstunnel hands them to WireGuard on localhost UDP 51820. WireGuard accepts them only because they are signed by sara's peer key, and they arrive on <code>wg0</code> from her fixed VPN address in the ops range (10.8.2.x).</li>
+<li><b>gw01's firewall.</b> Her source address falls in the firewalld zone <code>vpn-ops</code>. The forwarding policy for ops allows ws-ops01:22, idm01:22 and util01:22, and nothing else, so the packet is forwarded out of gw01's interface. AWS lets gw01 forward it because its source/destination check is disabled, and gw01's security group egress allows forwarded SSH into the workstation subnet.</li>
+<li><b>AWS security group.</b> ws-ops01's group <code>workstation-ops</code> accepts SSH from <code>10.8.2.0/24</code> (and from admin), and from no other team's range.</li>
+<li><b>Replies</b> go back through the private route table's <code>10.8.0.0/16 &rarr; gw01</code> route, because there is no NAT: ws-ops01 sees sara's real VPN address.</li>
+<li><b>sshd.</b> Only public-key authentication is offered. sshd asks SSSD for sara's public key (<code>sss_ssh_authorizedkeys</code>, set up by the IPA client). SSSD fetches it from IPA's LDAP, or serves it from its cache.</li>
+<li><b>HBAC.</b> In the PAM account phase, SSSD checks IPA's HBAC rules: <code>ops</code> may log into the ops workstations and the servers host group. A dev user would be refused here even with a valid key.</li>
+<li><b>Home directory.</b> sara's home is <code>/users/sara</code>. autofs on ws-ops01 has IPA's map (<code>auto.home</code>, key <code>*</code>), so it mounts <code>util01.ahmed.internal:/export/home/sara</code> over NFSv4 on TCP 2049. util01 exports only to the workstation addresses; the files belong to UID 455400010, the same number everywhere because IDs are fixed (D-060).</li>
+<li><b>Shell.</b> <code>/etc/profile.d/ahmed-proxy.sh</code> sets her proxy to the standard port; the 15-minute idle timeout and umask 027 apply.</li>
+<li><b>sudo.</b> <code>sudo -i</code> works because IPA's <code>ops-all</code> rule covers ws-ops01, delivered by SSSD, with no password (logins are key-only). sudo writes to <code>/var/log/sudo.log</code>, and auditd records the sudo command (USER_CMD) and every command she then runs as root (key <code>privileged</code>). Both travel to util01, where laila can search them.</li>
+</ol>
+
+<h2>7.2 ahmed (dev) opens a website</h2>
+<ol>
+<li>His shell's <code>https_proxy</code> points at <code>util01.ahmed.internal:3128</code> (standard policy, team dev).</li>
+<li>The workstation's security group allows only util01:3128/3129, so there is no other way out: a direct connection to the internet simply times out.</li>
+<li>Squid receives <code>CONNECT www.youtube.com:443</code>, matches the streaming deny list on the standard port, and answers 403. <code>CONNECT example.com:443</code> is allowed; Squid opens the connection through util01's NAT egress, and the TLS session runs end to end between the browser and the site. Squid sees only the domain.</li>
+<li>If contractor1 (allow-list team) on the same machine pointed his browser at port 3128 to escape his policy, the nftables rule on ws-dev01 rejects any packet to util01:3128 owned by his UID, so he only works on 3129, where only the allow-list passes.</li>
+<li>Squid's access log is also sent to syslog, so it ends up centrally on util01.</li>
+</ol>
+
+<h2>7.3 A log line travels to util01</h2>
+<ol>
+<li>A program on ws-dev01 logs to the journal. rsyslog reads it (<code>imjournal</code>).</li>
+<li>rsyslog forwards it over TCP 6514 with TLS, presenting ws-dev01's certificate from the IPA CA (requested and renewed by certmonger) and checking that the server is <code>util01.ahmed.internal</code>.</li>
+<li>util01 accepts only senders with a valid IPA certificate, looks up the sender's address in reverse DNS, and writes <code>/srv/logs/ws-dev01.ahmed.internal/&lt;program&gt;.log</code>, group <code>security</code>, mode 0640.</li>
+<li>If util01 is down, the sender keeps the messages in its disk queue and retries every 10 seconds.</li>
+<li>Audit records follow the same path (auditd's syslog plugin), but are written raw to <code>audit.log</code> so the audit tools can read them.</li>
+</ol>
+
+<h2>7.4 A new host joins the company (enrollment)</h2>
+<ol>
+<li>Terraform creates it with a fixed IP inside the reserved block, a FQDN set by cloud-init, and tags <code>Role</code>/<code>Team</code>. The dynamic inventory immediately puts it in the right Ansible groups.</li>
+<li><code>bootstrap.yml</code> creates the <code>ansible</code> account; <code>patch.yml</code> brings it to the fleet's patch level; <code>base</code> applies the baseline.</li>
+<li>In <code>idm.yml</code>, <code>ipa_client_prepare</code> creates a one-time password for it on idm01 and registers it in DNS. <code>ipaclient</code> enrolls it: it points its resolver at idm01, gets a host keytab, configures SSSD, publishes SSHFP records, and points sshd at SSSD for keys.</li>
+<li>Host groups, HBAC and sudo rules apply to it as soon as it is in the right host group; <code>ipa_client_config</code> resets SSSD's cache when the identity data changed.</li>
+<li>The log, audit, client, and hardening roles follow. Its compliance scan and the tests prove it.</li>
+</ol>
+
+<h2>7.5 A rebuild, start to finish (<code>lab.sh up</code>)</h2>
+<table>
+<tr><th>Step</th><th>What happens</th><th>Time (approx.)</th></tr>
+<tr><td>1</td><td>Terraform apply: 169 resources</td><td>5 min</td></tr>
+<tr><td>2</td><td>control01 boots, is prepared (venv, collections, repository, key)</td><td>5 min</td></tr>
+<tr><td>3</td><td><code>bootstrap.yml</code>: the ansible account on every host (key forwarded from the laptop once)</td><td>1 min</td></tr>
+<tr><td>4</td><td><code>site.yml</code>: patch (RHEL 10.0 image to 10.2), baseline, FreeIPA (the CA install alone takes 5 to 10 minutes), util01 services, logs, audit, clients, VPN, hardening (including AIDE databases)</td><td>40 min</td></tr>
+<tr><td>5</td><td>control01 rebooted if patching requires it</td><td>2 min</td></tr>
+<tr><td>6</td><td>CIS compliance scan of every host, results on util01</td><td>5 min</td></tr>
+<tr><td>7</td><td>Restore drill (proves the backup that was just restored can be restored again)</td><td>1 min</td></tr>
+<tr><td>8</td><td><code>test-lab.sh</code>: 160 checks</td><td>5 min</td></tr>
+<tr><td>9</td><td>VPN client refresh (needs your sudo)</td><td>-</td></tr>
+</table>
+<p>util01's data comes back from S3 in step 4: <code>util_storage</code> restores the latest backup because the volume group is new.</p>

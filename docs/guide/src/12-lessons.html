@@ -1,0 +1,55 @@
+<h1>12. Lessons and traps</h1>
+<p class="part-intro">The things that cost time once and should never cost time again. Most of them are good interview material, because they show real troubleshooting.</p>
+
+<h2>12.1 Linux and services</h2>
+<table>
+<tr><th>Trap</th><th>What to do</th></tr>
+<tr><td>sshd keeps the <b>first</b> value of a keyword; drop-ins are read in name order</td><td>Our drop-in is <code>01-</code>; check with <code>sshd -T</code>, not by reading files (INC-007)</td></tr>
+<tr><td>systemd "started" is not "ready" (D-Bus services)</td><td>Wait for the service's own readiness check (INC-003)</td></tr>
+<tr><td>Runtime firewall changes vanish on reload</td><td>Always permanent configuration, as whole files (D-038, D-052)</td></tr>
+<tr><td>XFS cannot enable quotas with a remount</td><td>Mount options at mount time; unmount and mount if needed</td></tr>
+<tr><td>NFSv4 clients do not show POSIX ACLs</td><td>Check ACLs on util01, not on the workstation</td></tr>
+<tr><td>Copying <code>/etc/skel/.</code> copies its 0755 mode onto the home</td><td>Copy the contents of /etc/skel instead</td></tr>
+<tr><td>rsyslog drops messages it cannot write; the sender has already handed them over</td><td>Keep the volume from filling (space guard)</td></tr>
+<tr><td><code>tar</code> exits 1 when a file changes while being read</td><td>That is a warning; 2 is a failure</td></tr>
+<tr><td>A partial or killed dnf update can break the system (crypto-policies ahead of SSH)</td><td>Never interrupt dnf; patch with enough memory (D-037)</td></tr>
+<tr><td>An EBS root volume cannot shrink</td><td>Replace the host (<code>terraform -replace</code>); data lives on util01 anyway</td></tr>
+<tr><td><code>glibc nss-myhostname</code> answers a host's own name locally</td><td>A host resolving <b>itself</b> proves nothing about DNS (DRILL-001)</td></tr>
+</table>
+
+<h2>12.2 FreeIPA and SSSD</h2>
+<table>
+<tr><th>Trap</th><th>What to do</th></tr>
+<tr><td>The AWS inventory variable <code>state</code> collides with the IPA roles' <code>state</code></td><td>Pass <code>state: present</code> as a role parameter</td></tr>
+<tr><td>Enrollment needs full server names; IPA's web server redirects short ones</td><td>Use the FQDN (<code>idm01.ahmed.internal</code>)</td></tr>
+<tr><td>A failed enrollment leaves an empty <code>/etc/ipa/ca.crt</code> that breaks every retry</td><td>Remove it if it is empty and the host is not enrolled</td></tr>
+<tr><td>IPA refuses a one-time password for a host it still lists as enrolled</td><td>Release (disable) the old entry before re-enrolling a rebuilt host</td></tr>
+<tr><td>SSSD caches "no sudo rules" from before they existed</td><td>Reset the cache when the identity data changes (checksum)</td></tr>
+<tr><td>SSSD can stay offline for minutes after an outage</td><td>Restart an offline SSSD on every run</td></tr>
+<tr><td>A reinstalled IPA gives users new numbers; files are stored by number</td><td>Fixed IDs (D-060); backups by name</td></tr>
+<tr><td>OpenSCAP reads /etc/passwd, not SSSD</td><td>IPA-owned files look "unowned"; documented exception</td></tr>
+</table>
+
+<h2>12.3 Ansible, SSH and shells</h2>
+<table>
+<tr><th>Trap</th><th>What to do</th></tr>
+<tr><td>ssh in a script reads the script's stdin</td><td>Use <code>ssh -n</code> or <code>&lt; /dev/null</code></td></tr>
+<tr><td><code>pgrep -f</code> or <code>grep</code> match their own command line</td><td>Use <code>[x]yz</code> patterns. Ansible also logs every command line it runs into <code>/var/log/messages</code>, so search a log by its program field, not for a word</td></tr>
+<tr><td>With pipelining, a running module shows as a bare <code>python3</code></td><td>Look at <code>ps --forest</code> under the ansible user's sshd session</td></tr>
+<tr><td>Secrets printed by ad-hoc Ansible end up in logs</td><td>Never pipe or print a secret through Ansible ad hoc</td></tr>
+<tr><td>Long SSH sessions through Instance Connect can stall</td><td>Run long jobs detached and poll (<code>run_on_control01</code>)</td></tr>
+<tr><td>Unquoted YAML values containing <code>": "</code> become mappings</td><td>Quote shell commands that contain a colon and a space</td></tr>
+<tr><td>Multi-line Jinja in <code>set_fact</code> keeps whitespace</td><td>Use <code>{%- -%}</code></td></tr>
+<tr><td>Central log directories are named by FQDN</td><td><code>/srv/logs/ws-ops01.ahmed.internal/</code>, not <code>/srv/logs/ws-ops01/</code></td></tr>
+</table>
+
+<h2>12.4 Terraform and AWS</h2>
+<table>
+<tr><th>Trap</th><th>What to do</th></tr>
+<tr><td>AWS-managed interfaces can take a "fixed" IP</td><td>Explicit subnet CIDR reservation (INC-006)</td></tr>
+<tr><td>Deleting a security group hangs while instances still use it</td><td>Create the new group and rules, move the instances, delete the old one last</td></tr>
+<tr><td>Interrupting an apply can leave resources AWS created but state never recorded</td><td>Let applies finish; find orphans by tag (<code>Project=ahmed-infra</code>)</td></tr>
+<tr><td>Security group egress also applies to forwarded packets</td><td>gw01 needs explicit forwarding egress rules (D-024)</td></tr>
+<tr><td>Long-lived admin access keys get leaked</td><td>MFA, one key, least privilege, rotation (INC-005)</td></tr>
+<tr><td>Not all instance types are allowed on the AWS Free plan</td><td>c7i-flex.large for the 4 GB host (D-025)</td></tr>
+</table>

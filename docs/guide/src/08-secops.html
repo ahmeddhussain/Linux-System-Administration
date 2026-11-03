@@ -1,0 +1,79 @@
+<h1>8. Security operations: audit, compliance, patching, drills</h1>
+
+<h2>8.1 Audit (D-063)</h2>
+<p>auditd runs on every host with the keyed rules listed in section 5.4. Two kinds of record matter most:</p>
+<ul>
+<li><b>USER_CMD</b>: written by sudo itself for every sudo command, with no rule needed.</li>
+<li><b>privileged</b>: every command a real user runs as root, including inside a root shell opened with <code>sudo -i</code>, which sudo alone would not show.</li>
+</ul>
+<p>Records leave each host through auditd's syslog plugin and the TLS log path, and land raw in <code>/srv/logs/&lt;fqdn&gt;/audit.log</code> on util01. The security team reads them there with its sudo rights:</p>
+<pre>sudo ausearch -if /srv/logs/ws-ops01.ahmed.internal/audit.log -k privileged -i     # root commands by real users
+sudo ausearch -if /srv/logs/ws-ops01.ahmed.internal/audit.log -m USER_CMD -i --start today
+sudo ausearch -if /srv/logs/ws-dev01.ahmed.internal/audit.log -k sshd --start recent
+sudo aureport -if /srv/logs/idm01.ahmed.internal/audit.log --summary -i
+cat /srv/logs/reports/audit-$(date +%F).txt     # today's summary, refreshed hourly</pre>
+<p>The rules are deliberately small and explainable rather than the hundreds of vendor STIG rules. They are not locked immutable (<code>-e 2</code>), so Ansible can update them without a reboot; CIS Level 1 does not require it.</p>
+
+<h2>8.2 Compliance: CIS Level 1 at 100% (D-064)</h2>
+<p>Every host is scanned with OpenSCAP against CIS Level 1 (<code>cis_server_l1</code> for servers, <code>cis_workstation_l1</code> for workstations), using a tailoring file built from the documented exceptions. The journey:</p>
+<table>
+<tr><th>Stage</th><th>Score</th><th>What was fixed</th></tr>
+<tr><td>Baseline (no fixes)</td><td>70 to 74</td><td>120 distinct failed rules</td></tr>
+<tr><td>Batch 1</td><td>92 to 93</td><td>kernel settings, core dumps, kernel modules, unused services masked, cron/at, /dev/shm and /tmp, journald, rsyslog file mode, banner, documented exceptions</td></tr>
+<tr><td>Batch 2</td><td>95.6 to 96.2</td><td>network sysctls, SSH settings (and INC-007)</td></tr>
+<tr><td>Batch 3</td><td>97.9 to 98.5</td><td>PAM through authselect, password policy, sudo defaults</td></tr>
+<tr><td>Batch 4</td><td><b>100.00</b></td><td>crypto policy, AIDE, the last umask and GSSAPI details</td></tr>
+</table>
+<p>Each role's minimum score is now 100 (<code>compliance_min_score</code>); a test fails if any host drops below it, so a regression is caught the same day. Fixes live in our own roles. SSG's generated remediation playbooks were rejected: hundreds of unreviewed changes that would fight our roles on every run.</p>
+<h3>The documented exceptions</h3>
+<table>
+<tr><th>Rule</th><th>Hosts</th><th>Reason</th></tr>
+<tr><td>grub2_password</td><td>all</td><td>EC2 has no boot console a person could reach; a password only hinders recovery</td></tr>
+<tr><td>ensure_root_password_configured</td><td>all</td><td>root stays locked; logins are key-only and break-glass is Instance Connect</td></tr>
+<tr><td>sshd_limit_user_access</td><td>all</td><td>IPA HBAC rules decide who may log in where; AllowGroups would duplicate them</td></tr>
+<tr><td>ensure_journald_and_rsyslog_not_active_together</td><td>all</td><td>rsyslog reads the journal and forwards it over TLS to util01</td></tr>
+<tr><td>package_systemd-journal-remote_installed</td><td>all</td><td>central logging is rsyslog over TLS, not journal-remote</td></tr>
+<tr><td>package_bind_removed, package_httpd_removed</td><td>idm01</td><td>FreeIPA's DNS runs on bind, its web UI and API on httpd</td></tr>
+<tr><td>package_squid_removed, service_nfs_disabled</td><td>util01</td><td>util01 is the web proxy and the NFS server</td></tr>
+<tr><td>sysctl_net_ipv4_conf_{all,default}_forwarding</td><td>gw01</td><td>gw01 routes VPN traffic into the VPC</td></tr>
+<tr><td>no_files_or_dirs_unowned_by_user, _ungroupowned</td><td>util01</td><td>homes and shares belong to IPA users and groups (resolved by SSSD); the check reads only /etc/passwd and /etc/group</td></tr>
+<tr><td>service_rpcbind_disabled</td><td>util01, workstations</td><td>started with the NFS server and client; revisit for NFSv4-only</td></tr>
+</table>
+<p>Reports: <code>/srv/logs/reports/openscap/summary.txt</code> and <code>&lt;fqdn&gt;/report.html.gz</code> on util01. Rerun with <code>scripts/lab.sh compliance</code>.</p>
+
+<h2>8.3 Patching cadence (D-065)</h2>
+<table>
+<tr><th>Cycle</th><th>When</th><th>Command</th></tr>
+<tr><td>Monthly</td><td>first Saturday after Red Hat's monthly errata, 02:00 UTC</td><td><code>scripts/lab.sh patch</code></td></tr>
+<tr><td>Urgent</td><td>within 7 days of a Critical or Important security advisory</td><td><code>scripts/lab.sh patch --security</code></td></tr>
+<tr><td>New or rebuilt hosts</td><td>every <code>up</code>/<code>resume</code></td><td>automatic (first step of site.yml)</td></tr>
+</table>
+<p>The cycle patches in <b>rings</b> to limit the blast radius of a bad update:</p>
+<ol>
+<li>ws-dev01, the canary.</li>
+<li>ws-ops01 and util01.</li>
+<li>gw01 and idm01.</li>
+<li>control01, which reports a needed reboot instead of rebooting itself.</li>
+</ol>
+<p>A gate after each ring checks that every host finished and that IPA, SSSD, util01's services and the VPN still answer. A failure ends the cycle, so the later rings stay on the old, working level. Every run writes a record: the dnf history ID, the number of package changes, whether it rebooted, and the kernel, in <code>/var/log/ahmed-patch.log</code> and syslog. Rollback (in <code>docs/runbooks/patching.md</code>): <code>dnf history undo &lt;ID&gt;</code> or <code>dnf downgrade</code>; for a kernel, <code>grubby --set-default</code> the previous one; if all else fails, rebuild the host from code.</p>
+
+<h2>8.4 Backups and restore drills (D-056, D-066)</h2>
+<p>util01's data is backed up daily at 02:00 by a timer, and before every <code>lab.sh down</code>, to the versioned S3 bucket, which keeps old versions for 30 days. On a rebuild the data is restored onto the new volume. The restore drill runs on every <code>up</code>/<code>resume</code> and measures:</p>
+<table>
+<tr><th>Measure</th><th>Result (2026-11-03)</th><th>Target</th></tr>
+<tr><td>RPO: data at risk since it was last safe</td><td>649 s</td><td>24 h (the daily timer)</td></tr>
+<tr><td>Backup duration</td><td>3 s</td><td>-</td></tr>
+<tr><td>Single-file RTO (a user's deleted file, checked for content, owner and label)</td><td>1 s</td><td>5 min</td></tr>
+<tr><td>Full-data RTO (98 MB, compared with live)</td><td>2 s</td><td>15 min</td></tr>
+</table>
+<p>RPO (Recovery Point Objective) is how much work you could lose; RTO (Recovery Time Objective) is how long recovery takes. Disaster recovery for everything else (identity, configuration) is rebuilding from Git: about an hour (<code>lab.sh up</code>).</p>
+
+<h2>8.5 Incident drills (D-067)</h2>
+<table>
+<tr><th>Drill</th><th>Result</th><th>Follow-up</th></tr>
+<tr><td>idm-outage</td><td>SSSD's cache kept users resolving; <b>DNS failed on clients</b>; all clients back within about a minute of IPA's restart</td><td>D-068: idm01 and util01 pinned in /etc/hosts; the rerun showed DNS OK. An IPA replica stays roadmap item 6.</td></tr>
+<tr><td>logs-disk-full</td><td>With the volume really full, messages were lost: util01 had accepted them over TCP, then could not write them</td><td>Space guard below 85%. rsyslog drops on ENOSPC by design, so queues cannot help (tried and reverted).</td></tr>
+<tr><td>package-rollback</td><td>rsync downgraded in 4 s, healthy, patched forward</td><td>none needed: the runbook works</td></tr>
+<tr><td>restore</td><td>PASS, every target met</td><td>runs on every resume</td></tr>
+</table>
+<p>Results go to <code>/srv/logs/reports/drills/</code> (readable by security) and to <code>docs/drills/DRILL-00x-*.md</code>.</p>

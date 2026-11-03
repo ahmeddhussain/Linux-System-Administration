@@ -1,0 +1,131 @@
+<h1>4. Terraform, file by file</h1>
+<p class="part-intro">Terraform creates everything AWS provides. This chapter explains every file, so you can read any line of the code and know why it is there.</p>
+
+<h2>4.1 The lab layer: <code>terraform/</code></h2>
+<table>
+<tr><th>File</th><th>What it contains</th></tr>
+<tr><td><code>versions.tf</code></td><td>Terraform <code>~&gt; 1.11</code>, AWS provider <code>~&gt; 6.0</code> (locked at 6.70.0 in <code>.terraform.lock.hcl</code>), and the S3 backend: bucket <code>ahmed-statefile</code>, key <code>ahmed-infra/terraform.tfstate</code>, encryption, <code>use_lockfile = true</code>.</td></tr>
+<tr><td><code>providers.tf</code></td><td>The AWS provider with <b>default tags</b> on every resource: <code>Company=ahmed</code>, <code>Project=ahmed-infra</code>, <code>ManagedBy=terraform</code>. The Ansible inventory filters on <code>Project</code>.</td></tr>
+<tr><td><code>variables.tf</code></td><td>Every input: region, company name, domain <code>ahmed.internal</code>, the VPC and subnets (with each subnet's reserved <code>static_cidr</code>), the VPN ranges, the image name pattern, and the <b><code>hosts</code> map</b>, the inventory of every server. Validations reject bad input before anything is built.</td></tr>
+<tr><td><code>terraform.tfvars</code></td><td>Local settings (gitignored; copy from <code>terraform.tfvars.example</code>). Most importantly <code>enable_vpn_endpoint = true</code>, which opens TCP 443 on gw01. <code>lab.sh</code> refuses to run without this file.</td></tr>
+<tr><td><code>main.tf</code></td><td>Calls the <code>network</code> and <code>security-groups</code> modules.</td></tr>
+<tr><td><code>network-policy.tf</code></td><td>The whole network policy as data: roles, flows between roles, and IP-range rules (section 4.4).</td></tr>
+<tr><td><code>hosts.tf</code></td><td>One <code>ec2-instance</code> module call with <code>for_each = var.hosts</code>: every server comes from one map entry.</td></tr>
+<tr><td><code>compute.tf</code></td><td>Looks up the official Red Hat RHEL 10 image by name and owner (D-021), and imports the public half of the bootstrap SSH key (the private key never enters Terraform, D-004).</td></tr>
+<tr><td><code>iam.tf</code></td><td>Two instance roles (section 4.5).</td></tr>
+<tr><td><code>access.tf</code></td><td>The EC2 Instance Connect Endpoint in the infra subnet: admin entry for <code>lab.sh</code> and break-glass (D-026).</td></tr>
+<tr><td><code>vpn.tf</code></td><td>The route that sends replies for <code>10.8.0.0/16</code> from the private subnets to gw01's network interface (D-024).</td></tr>
+<tr><td><code>moved.tf</code></td><td><code>moved</code> blocks from a 2026-11-01 rename of the control01 role, so the state kept its history instead of destroying and recreating it.</td></tr>
+<tr><td><code>outputs.tf</code></td><td>VPC and subnet IDs, security group IDs, gw01's public IP, the VPN endpoint URL, each host's private IP and instance ID.</td></tr>
+<tr><td><code>tests/hosts.tftest.hcl</code></td><td>Mocked tests of the host validations (section 4.7).</td></tr>
+</table>
+
+<h2>4.2 The <code>hosts</code> map: the inventory of servers</h2>
+<p>Every host is one entry. The fields:</p>
+<table>
+<tr><th>Field</th><th>Meaning</th><th>Example</th></tr>
+<tr><td><code>role</code></td><td>Its job; becomes the <code>Role</code> tag, so the Ansible group <code>role_&lt;role&gt;</code>, and its default security group</td><td><code>util</code></td></tr>
+<tr><td><code>subnet</code></td><td>Which subnet</td><td><code>infra</code></td></tr>
+<tr><td><code>private_ip</code></td><td>Fixed address, which must lie in the subnet's reserved block <code>10.0.x.8/29</code></td><td><code>10.0.1.12</code></td></tr>
+<tr><td><code>instance_type</code></td><td>Size</td><td><code>t3.small</code>; idm01 <code>c7i-flex.large</code> (4 GB, free-plan eligible, D-025)</td></tr>
+<tr><td><code>team</code></td><td><code>Team</code> tag, so the group <code>team_&lt;team&gt;</code></td><td><code>platform</code>, <code>dev</code>, <code>ops</code></td></tr>
+<tr><td><code>allocate_eip</code></td><td>Public Elastic IP</td><td>only gw01</td></tr>
+<tr><td><code>source_dest_check</code></td><td><code>false</code> lets the host forward traffic that is not its own</td><td>only gw01 (VPN router)</td></tr>
+<tr><td><code>control_node_role</code></td><td>Gets the control-node IAM role</td><td>only control01 (a validation allows exactly one)</td></tr>
+<tr><td><code>backup_writer</code></td><td>Gets the backup IAM role</td><td>only util01</td></tr>
+<tr><td><code>security_group</code></td><td>Overrides the role's group</td><td>workstations: <code>workstation-dev</code> / <code>workstation-ops</code></td></tr>
+<tr><td><code>root_volume_size</code></td><td>OS disk in GiB (default 20)</td><td>workstations: 10 (no data on them, D-061)</td></tr>
+<tr><td><code>extra_volumes</code></td><td>Extra EBS disks</td><td>util01: <code>data</code> 20 GB on <code>/dev/sdf</code>, <code>data2</code> 10 GB on <code>/dev/sdg</code></td></tr>
+</table>
+<p>Validations on the map: every subnet exists; every role or security group is a known role; every IP is a valid IPv4 address; no two hosts share an IP; every IP lies inside its subnet's reserved block (D-062); root volumes are at least 10 GiB; exactly one control node. Adding a server is therefore one entry, and Terraform catches mistakes before AWS sees them.</p>
+
+<h2>4.3 The modules</h2>
+<h3><code>modules/network</code></h3>
+<ul>
+<li>The VPC (DNS support and hostnames on), an internet gateway, one subnet per entry of <code>var.subnets</code> (public subnets give instances public IPs; private ones never do).</li>
+<li><b>Subnet CIDR reservations</b> (<code>aws_ec2_subnet_cidr_reservation</code>, type <code>explicit</code>) for <code>10.0.x.8/29</code> in every subnet. AWS never hands those addresses to managed interfaces such as the NAT gateway or the Instance Connect Endpoint (INC-006, D-062). The module's <code>subnet_ids</code> output and the NAT gateway <code>depends_on</code> the reservations, so nothing is placed in a subnet before its addresses are protected.</li>
+<li>A NAT gateway with its Elastic IP in the public subnet, switchable with <code>enable_nat_gateway</code>.</li>
+<li>Route tables: public (default route to the internet gateway) and private (default route to the NAT).</li>
+<li>Mocked tests (<code>tests/nat.tftest.hcl</code>): NAT on by default, NAT off removes all NAT cost, only public subnets map public IPs, every subnet has an explicit reservation.</li>
+</ul>
+<h3><code>modules/security-groups</code></h3>
+<ul>
+<li>One empty security group per role. "Empty" means everything is denied.</li>
+<li>The VPC's built-in default security group is taken over and stripped of all rules, so nothing can accidentally use it.</li>
+<li>For every <b>flow</b> (role A to role B on a port) it creates <b>both halves</b>: an egress rule on A that references B's group, and an ingress rule on B that references A's group. With default-deny egress, a connection needs both.</li>
+<li><code>cidr_ingress</code> and <code>cidr_egress</code> maps create rules for IP ranges (the VPN ranges, the VPC, the internet).</li>
+<li>Rules are separate resources (<code>aws_vpc_security_group_*_rule</code>), never inline, which avoids circular references between groups (D-015).</li>
+<li>Mocked tests: one group per role, each flow opens exactly its two halves and nothing else, and flows or rules naming an unknown role are rejected.</li>
+</ul>
+<h3><code>modules/ec2-instance</code></h3>
+<ul>
+<li>The instance, with its fixed private IP, security group, bootstrap key and optional IAM instance profile.</li>
+<li><b>cloud-init user data</b> sets the hostname and FQDN (<code>&lt;name&gt;.ahmed.internal</code>), which FreeIPA requires.</li>
+<li><b>IMDSv2 required</b>, hop limit 1: containers or proxies on the host cannot reach the metadata service.</li>
+<li>An encrypted gp3 root disk; extra encrypted gp3 volumes and their attachments from <code>extra_volumes</code>.</li>
+<li>An optional Elastic IP.</li>
+<li><code>lifecycle { ignore_changes = [ami, user_data] }</code>: when Red Hat publishes a newer image, Terraform does <b>not</b> replace the servers. They are patched in place with dnf instead (D-021, D-034).</li>
+</ul>
+
+<h2>4.4 <code>network-policy.tf</code>: the firewall policy as data</h2>
+<p>The file defines four things, and the security-groups module turns them into rules:</p>
+<ol>
+<li><b>Roles:</b> <code>eice, gateway, control, idm, util, workstation-dev, workstation-ops</code>. Each team's workstation has its own group, so AWS enforces the same per-team boundary as gw01's firewall (D-052).</li>
+<li><b>Flows</b> (role to role):
+<ul>
+<li>Instance Connect to control01 on SSH; control01 to every other role on SSH (Ansible).</li>
+<li>Workstations to util01 on 3128 and 3129 (Squid), on 2049 (NFSv4).</li>
+<li>Every role except util to util01 on 6514 (logs over TLS).</li>
+</ul></li>
+<li><b>Ingress from IP ranges</b>:
+<ul>
+<li>The internet to gw01 on TCP 443, only if <code>enable_vpn_endpoint</code>.</li>
+<li>The admin VPN range to control01 and both workstations on SSH and ICMP.</li>
+<li>Each team's VPN range to its own workstation on SSH; the ops range to idm01 and util01 on SSH (D-053).</li>
+<li>The whole VPC to idm01 on the FreeIPA ports (DNS 53 TCP/UDP, Kerberos 88 and 464 TCP/UDP, LDAP 389, LDAPS 636, HTTP 80 for certificate revocation, HTTPS 443); the admin range to idm01 on 443 (web UI); ICMP inside the VPC.</li>
+</ul></li>
+<li><b>Egress to IP ranges</b>:
+<ul>
+<li>Servers (not workstations) may use HTTPS to the internet through the NAT, for packages.</li>
+<li>Every role may send ICMP inside the VPC.</li>
+<li>Every role may reach idm01's single address on the FreeIPA ports (HTTPS only for workstations, since servers already have it).</li>
+<li>gw01 may forward VPN SSH into the infra and workstation subnets: security group egress also applies to forwarded packets (D-024).</li>
+</ul></li>
+</ol>
+<div class="box why"><div class="box-title">Why FreeIPA uses the VPC range instead of role-to-role flows</div>
+Every host in the VPC is an IPA client by design, so "from the VPC" is the honest boundary, and each host's egress is still pinned to idm01's single /32. Role-to-role flows for ten ports and six roles would be about 72 rules, near AWS's default limit of 60 rules per group (D-051).</div>
+<div class="box"><div class="box-title">Opening a new connection (the change procedure)</div>
+Add one entry to <code>flows</code> (or the CIDR maps), run <code>terraform plan</code>, check that it adds exactly the two rules you expect, apply, and record it. Anything not written here stays denied.</div>
+
+<h2>4.5 IAM: what the servers are allowed to do in AWS</h2>
+<table>
+<tr><th>Role</th><th>Given to</th><th>Permissions</th><th>Why so narrow</th></tr>
+<tr><td><code>ahmed-control-node</code></td><td>control01</td><td><code>ec2:DescribeInstances</code>, <code>DescribeRegions</code>, <code>DescribeAvailabilityZones</code> (dynamic inventory); <code>ssm:GetParameter</code> on <code>/ahmed-infra/*</code> only; <code>kms:Decrypt</code> only when SSM makes the call</td><td>No stored credentials; cannot write anything; cannot read other secrets. Policies use <code>create_before_destroy</code> so a rename never leaves control01 without permissions.</td></tr>
+<tr><td><code>ahmed-backup-writer</code></td><td>util01</td><td>List the backup bucket; get and put objects under <code>util01/*</code></td><td><b>No delete.</b> With versioning, an overwrite keeps the old version, so a compromised util01 cannot erase the backup history.</td></tr>
+</table>
+
+<h2>4.6 The persistent and bootstrap layers</h2>
+<h3><code>terraform/persistent</code></h3>
+<ul>
+<li><b>The Ansible Vault password</b>: an <code>ephemeral "random_password"</code> (64 characters) written to the SSM SecureString <code>/ahmed-infra/ansible-vault-password</code> through the <b>write-only</b> argument <code>value_wo</code>. The password never appears in plan output, in state or on disk (D-043). Rotation means re-keying every vault file and bumping <code>vault_password_version</code>.</li>
+<li><b>The backup bucket</b> <code>ahmed-infra-backups-&lt;account&gt;</code>: versioning (old versions expire after 30 days), public access blocked, SSE-S3 encryption, owner-enforced objects (no ACLs), and a policy that denies any request not made over TLS. <code>prevent_destroy</code> on everything.</li>
+</ul>
+<h3><code>terraform/bootstrap</code></h3>
+<p>The state bucket <code>ahmed-statefile</code> existed before the code did, so it is <b>adopted with <code>import</code> blocks</b> rather than recreated (D-044): versioning (old state versions expire after 90 days, so an overwritten state can be recovered), public access blocked, encryption, a TLS-only policy, <code>prevent_destroy</code>. Its own state lives in the same bucket. If the bucket were ever lost, the backend block is commented out and the layer applied locally.</p>
+
+<h2>4.7 Terraform tests</h2>
+<p><code>terraform test</code> runs plans against a <b>mocked AWS provider</b>, so no credentials are needed, nothing is created, and they take seconds (D-045). The root tests check that the default six-host inventory plans, and that each validation rejects what it should: an unknown subnet, an unknown role, a duplicate IP, two control nodes, an IP outside the reserved block. The module tests are listed in 4.3. Run them with:</p>
+<pre>terraform -chdir=terraform test
+terraform -chdir=terraform/modules/network init -backend=false &amp;&amp; terraform -chdir=terraform/modules/network test
+terraform -chdir=terraform/modules/security-groups init -backend=false &amp;&amp; terraform -chdir=terraform/modules/security-groups test</pre>
+
+<h2>4.8 What happens on <code>terraform apply</code> (lab layer)</h2>
+<ol>
+<li>VPC, internet gateway, subnets, route tables, the default security group stripped.</li>
+<li>Subnet CIDR reservations; only then the NAT gateway (and its EIP), the subnet outputs and anything placed in a subnet.</li>
+<li>Security groups and their rules (about 120 rule resources).</li>
+<li>Key pair, IAM roles and instance profiles.</li>
+<li>The six instances (with fixed IPs inside the reservations), util01's data volumes and attachments, gw01's EIP.</li>
+<li>The Instance Connect Endpoint and the VPN return route.</li>
+</ol>
+<p>The whole layer is 169 resources. <code>terraform plan -destroy</code> before every teardown confirms that only those are touched: never the SSM parameter, the backup bucket or the state bucket.</p>

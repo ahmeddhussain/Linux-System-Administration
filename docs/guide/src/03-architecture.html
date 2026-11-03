@@ -1,0 +1,159 @@
+<h1>3. Architecture</h1>
+
+<h2>3.1 The network</h2>
+<figure>
+<svg width="640" height="400" viewBox="0 0 640 400" xmlns="http://www.w3.org/2000/svg" font-size="10">
+  <rect x="5" y="150" width="88" height="60" rx="6" fill="#fff6e0" stroke="#c9a227"/>
+  <text x="49" y="172" text-anchor="middle" font-weight="bold">Laptop</text>
+  <text x="49" y="186" text-anchor="middle" font-size="8.5">wstunnel client</text>
+  <text x="49" y="198" text-anchor="middle" font-size="8.5">WireGuard 10.8.0.2</text>
+  <rect x="5" y="260" width="88" height="44" rx="6" fill="#fff6e0" stroke="#c9a227"/>
+  <text x="49" y="279" text-anchor="middle" font-weight="bold">AWS API</text>
+  <text x="49" y="292" text-anchor="middle" font-size="8.5">Instance Connect</text>
+  <rect x="110" y="10" width="525" height="385" rx="8" fill="#f3f6fa" stroke="#12355b" stroke-width="1.5"/>
+  <text x="120" y="27" font-weight="bold" fill="#12355b">VPC 10.0.0.0/16 (us-east-1a)</text>
+  <rect x="122" y="38" width="155" height="345" rx="6" fill="#e6eef8" stroke="#6b8db5"/>
+  <text x="130" y="54" font-weight="bold">public 10.0.0.0/24</text>
+  <rect x="135" y="120" width="128" height="74" rx="5" fill="#fff" stroke="#12355b"/>
+  <text x="199" y="138" text-anchor="middle" font-weight="bold">gw01 .0.10</text>
+  <text x="199" y="152" text-anchor="middle" font-size="8.5">Elastic IP, TCP 443 only</text>
+  <text x="199" y="164" text-anchor="middle" font-size="8.5">wstunnel + WireGuard</text>
+  <text x="199" y="176" text-anchor="middle" font-size="8.5">per-team firewalld policy</text>
+  <rect x="135" y="230" width="128" height="40" rx="5" fill="#fff" stroke="#888"/>
+  <text x="199" y="248" text-anchor="middle" font-weight="bold">NAT gateway</text>
+  <text x="199" y="261" text-anchor="middle" font-size="8.5">servers' outbound HTTPS</text>
+  <rect x="135" y="62" width="128" height="34" rx="5" fill="#fff" stroke="#888"/>
+  <text x="199" y="83" text-anchor="middle" font-weight="bold">Internet gateway</text>
+  <rect x="290" y="38" width="170" height="345" rx="6" fill="#e6eef8" stroke="#6b8db5"/>
+  <text x="298" y="54" font-weight="bold">infra 10.0.1.0/24</text>
+  <rect x="302" y="64" width="146" height="46" rx="5" fill="#fff" stroke="#12355b"/>
+  <text x="375" y="82" text-anchor="middle" font-weight="bold">control01 .1.10</text>
+  <text x="375" y="96" text-anchor="middle" font-size="8.5">Ansible, tests (admin only)</text>
+  <rect x="302" y="122" width="146" height="58" rx="5" fill="#fff" stroke="#12355b"/>
+  <text x="375" y="140" text-anchor="middle" font-weight="bold">idm01 .1.11</text>
+  <text x="375" y="154" text-anchor="middle" font-size="8.5">FreeIPA: LDAP, Kerberos,</text>
+  <text x="375" y="166" text-anchor="middle" font-size="8.5">DNS, CA, web UI</text>
+  <rect x="302" y="192" width="146" height="84" rx="5" fill="#fff" stroke="#12355b"/>
+  <text x="375" y="210" text-anchor="middle" font-weight="bold">util01 .1.12</text>
+  <text x="375" y="224" text-anchor="middle" font-size="8.5">Squid 3128/3129</text>
+  <text x="375" y="236" text-anchor="middle" font-size="8.5">NFSv4 homes + team shares</text>
+  <text x="375" y="248" text-anchor="middle" font-size="8.5">rsyslog TLS 6514, audit</text>
+  <text x="375" y="260" text-anchor="middle" font-size="8.5">backups to S3, reports</text>
+  <rect x="302" y="292" width="146" height="40" rx="5" fill="#fff" stroke="#888"/>
+  <text x="375" y="310" text-anchor="middle" font-weight="bold">Instance Connect</text>
+  <text x="375" y="323" text-anchor="middle" font-size="8.5">Endpoint (break-glass)</text>
+  <text x="375" y="358" text-anchor="middle" font-size="8.5" fill="#555">reserved for fixed IPs: .8 to .15</text>
+  <rect x="473" y="38" width="150" height="230" rx="6" fill="#e6eef8" stroke="#6b8db5"/>
+  <text x="481" y="54" font-weight="bold">workstation 10.0.2.0/24</text>
+  <rect x="485" y="64" width="126" height="58" rx="5" fill="#fff" stroke="#12355b"/>
+  <text x="548" y="82" text-anchor="middle" font-weight="bold">ws-dev01 .2.10</text>
+  <text x="548" y="96" text-anchor="middle" font-size="8.5">dev, contractors</text>
+  <text x="548" y="108" text-anchor="middle" font-size="8.5">10 GiB, no local data</text>
+  <rect x="485" y="134" width="126" height="58" rx="5" fill="#fff" stroke="#12355b"/>
+  <text x="548" y="152" text-anchor="middle" font-weight="bold">ws-ops01 .2.11</text>
+  <text x="548" y="166" text-anchor="middle" font-size="8.5">ops, dba</text>
+  <text x="548" y="178" text-anchor="middle" font-size="8.5">10 GiB, no local data</text>
+  <text x="548" y="222" text-anchor="middle" font-size="8.5">no direct internet:</text>
+  <text x="548" y="234" text-anchor="middle" font-size="8.5">web only through Squid</text>
+  <rect x="473" y="280" width="150" height="103" rx="6" fill="#eef1f4" stroke="#aab" stroke-dasharray="4 3"/>
+  <text x="481" y="296" font-weight="bold">app 10.0.3.0/24</text>
+  <text x="548" y="330" text-anchor="middle" font-size="8.5">empty: app01 planned</text>
+  <text x="548" y="342" text-anchor="middle" font-size="8.5">at 10.0.3.10</text>
+  <line x1="93" y1="180" x2="135" y2="160" stroke="#c9a227" stroke-width="2"/>
+  <text x="100" y="146" font-size="8" fill="#7a5d00">TLS 443</text>
+  <line x1="93" y1="282" x2="302" y2="312" stroke="#c9a227" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <line x1="263" y1="157" x2="485" y2="93" stroke="#3d8b5a" stroke-width="1.3"/>
+  <line x1="263" y1="160" x2="302" y2="87" stroke="#3d8b5a" stroke-width="1.3"/>
+  <line x1="448" y1="232" x2="485" y2="163" stroke="#b8433a" stroke-width="1.3" stroke-dasharray="3 2"/>
+  <line x1="448" y1="232" x2="485" y2="100" stroke="#b8433a" stroke-width="1.3" stroke-dasharray="3 2"/>
+</svg>
+<figcaption>Figure 1. The company network. Green: forwarded VPN traffic. Red dashed: NFS and proxy traffic between the workstations and util01. Yellow: the only two ways in (VPN on TCP 443, and Instance Connect through the AWS API).</figcaption>
+</figure>
+
+<table>
+<tr><th>Subnet</th><th>CIDR</th><th>Type</th><th>Reserved for fixed IPs</th><th>Hosts</th></tr>
+<tr><td>public</td><td>10.0.0.0/24</td><td>route to the internet gateway</td><td>10.0.0.8/29</td><td>gw01 (10.0.0.10), NAT gateway</td></tr>
+<tr><td>infra</td><td>10.0.1.0/24</td><td>private, default route to NAT</td><td>10.0.1.8/29</td><td>control01, idm01, util01, Instance Connect Endpoint</td></tr>
+<tr><td>workstation</td><td>10.0.2.0/24</td><td>private, but no internet egress in the security groups</td><td>10.0.2.8/29</td><td>ws-dev01, ws-ops01</td></tr>
+<tr><td>app</td><td>10.0.3.0/24</td><td>private</td><td>10.0.3.8/29</td><td>empty (app01)</td></tr>
+</table>
+<p>VPN clients use <code>10.8.0.0/16</code>, split per team: admin <code>10.8.0.0/24</code>, dev <code>10.8.1.0/24</code>, ops <code>10.8.2.0/24</code>. VPN traffic is <b>routed, not NATed</b> (D-024): when sara connects, servers see her own VPN address (10.8.2.x), so firewalls can tell teams apart and logs show who it was. That requires two things: gw01's "source/destination check" is disabled so AWS lets it forward packets, and the private route table sends <code>10.8.0.0/16</code> back to gw01.</p>
+
+<h2>3.2 Who reaches what</h2>
+<figure>
+<svg width="640" height="225" viewBox="0 0 640 225" xmlns="http://www.w3.org/2000/svg" font-size="10">
+  <g font-size="9.5">
+  <rect x="5" y="10" width="110" height="34" rx="5" fill="#fff6e0" stroke="#c9a227"/><text x="60" y="31" text-anchor="middle" font-weight="bold">Admin laptop</text>
+  <rect x="5" y="80" width="110" height="34" rx="5" fill="#fff6e0" stroke="#c9a227"/><text x="60" y="101" text-anchor="middle" font-weight="bold">Dev employee</text>
+  <rect x="5" y="140" width="110" height="34" rx="5" fill="#fff6e0" stroke="#c9a227"/><text x="60" y="161" text-anchor="middle" font-weight="bold">Ops employee</text>
+  <rect x="5" y="190" width="110" height="30" rx="5" fill="#fff6e0" stroke="#c9a227"/><text x="60" y="209" text-anchor="middle" font-weight="bold">AWS credentials</text>
+  <rect x="170" y="60" width="90" height="100" rx="5" fill="#e6eef8" stroke="#12355b"/><text x="215" y="100" text-anchor="middle" font-weight="bold">gw01</text><text x="215" y="114" text-anchor="middle" font-size="8.5">zone per team</text><text x="215" y="126" text-anchor="middle" font-size="8.5">policy per team</text>
+  <rect x="320" y="10" width="95" height="30" rx="5" fill="#fff" stroke="#12355b"/><text x="367" y="29" text-anchor="middle" font-weight="bold">control01</text>
+  <rect x="320" y="60" width="95" height="30" rx="5" fill="#fff" stroke="#12355b"/><text x="367" y="79" text-anchor="middle" font-weight="bold">ws-dev01</text>
+  <rect x="320" y="110" width="95" height="30" rx="5" fill="#fff" stroke="#12355b"/><text x="367" y="129" text-anchor="middle" font-weight="bold">ws-ops01</text>
+  <rect x="320" y="160" width="95" height="30" rx="5" fill="#fff" stroke="#12355b"/><text x="367" y="179" text-anchor="middle" font-weight="bold">idm01, util01</text>
+  <rect x="490" y="60" width="140" height="80" rx="5" fill="#fff" stroke="#12355b"/><text x="560" y="84" text-anchor="middle" font-weight="bold">every server</text><text x="560" y="100" text-anchor="middle" font-size="8.5">SSH only from control01</text><text x="560" y="114" text-anchor="middle" font-size="8.5">(Ansible, admins)</text>
+  </g>
+  <line x1="115" y1="27" x2="170" y2="80" stroke="#12355b" stroke-width="1.5"/>
+  <line x1="115" y1="97" x2="170" y2="105" stroke="#3d8b5a" stroke-width="1.5"/>
+  <line x1="115" y1="157" x2="170" y2="130" stroke="#7a3d8b" stroke-width="1.5"/>
+  <line x1="260" y1="75" x2="320" y2="25" stroke="#12355b" stroke-width="1.5"/>
+  <line x1="260" y1="85" x2="320" y2="75" stroke="#12355b" stroke-width="1.5"/>
+  <line x1="260" y1="95" x2="320" y2="125" stroke="#12355b" stroke-width="1.5"/>
+  <line x1="260" y1="105" x2="320" y2="75" stroke="#3d8b5a" stroke-width="2"/>
+  <line x1="260" y1="135" x2="320" y2="125" stroke="#7a3d8b" stroke-width="2"/>
+  <line x1="260" y1="140" x2="320" y2="175" stroke="#7a3d8b" stroke-width="2"/>
+  <polyline points="115,205 290,205 290,32 320,32" fill="none" stroke="#c9a227" stroke-width="1.3" stroke-dasharray="5 3"/>
+  <line x1="415" y1="25" x2="490" y2="90" stroke="#12355b" stroke-width="1.5"/>
+</svg>
+<figcaption>Figure 2. Access paths. Blue: admin range (control01, both workstations, IPA web UI, SSH to gw01). Green: dev range (ws-dev01 only). Purple: ops range (ws-ops01, idm01, util01). Dashed: break-glass through AWS Instance Connect.</figcaption>
+</figure>
+<ul>
+<li><b>Admin:</b> laptop, then the VPN (admin range), then <code>ssh control01-vpn</code>, then any host. If the VPN is broken: <code>ssh control01</code> through Instance Connect, authenticated by AWS credentials.</li>
+<li><b>Employees:</b> laptop, then the VPN (their team's range), then their team's workstation only, which simulates sitting at their own desk. Ops may also reach idm01 and util01 (D-053).</li>
+<li><b>Servers</b> accept SSH only from control01, plus the per-team VPN exceptions above.</li>
+<li><b>The only port open to the internet</b> is TCP 443 on gw01, which carries WireGuard inside TLS. WireGuard ignores any packet not signed by a known peer key, so the open port reveals nothing.</li>
+</ul>
+
+<h2>3.3 Defence in depth: the layers a connection must pass</h2>
+<table>
+<tr><th>#</th><th>Layer</th><th>Where defined</th><th>What it decides</th></tr>
+<tr><td>1</td><td>WireGuard peer keys</td><td><code>role_gateway/main.yml</code></td><td>Only known devices can talk to the VPN at all</td></tr>
+<tr><td>2</td><td>gw01 firewalld zones and policies</td><td><code>vpn_team_policy</code> in the same file</td><td>Which hosts and ports each team's VPN range may reach</td></tr>
+<tr><td>3</td><td>AWS security groups</td><td><code>terraform/network-policy.tf</code></td><td>Which role may talk to which role or IP range, on which port</td></tr>
+<tr><td>4</td><td>Host firewalld</td><td>Ansible roles</td><td>The same boundary again on each host</td></tr>
+<tr><td>5</td><td>sshd: keys only</td><td><code>base</code> role, <code>01-ahmed-hardening.conf</code></td><td>No passwords, no root, public keys only (tested)</td></tr>
+<tr><td>6</td><td>IPA HBAC rules</td><td><code>role_idm/identity.yml</code></td><td>Which users may log into which hosts</td></tr>
+<tr><td>7</td><td>IPA sudo rules</td><td>same file</td><td>What each user may run as root</td></tr>
+<tr><td>8</td><td>SELinux, file permissions, quotas</td><td>roles</td><td>What processes and users may touch once logged in</td></tr>
+<tr><td>9</td><td>Audit, AIDE, central logs</td><td><code>audit</code>, <code>hardening</code>, log roles</td><td>Every privileged action and change is recorded off the host</td></tr>
+</table>
+<p>Two independent layers enforce each network boundary (layers 2 and 3, then 3 and 4), so one mistake does not open a path (D-052).</p>
+
+<h2>3.4 Where the data lives (and why)</h2>
+<table>
+<tr><th>Data</th><th>Lives on</th><th>Survives a rebuild because</th></tr>
+<tr><td>Code, configuration, users, rules</td><td>Git (GitHub)</td><td>it is the source of truth; everything is rebuilt from it</td></tr>
+<tr><td>Secrets (IPA passwords, gw01 WireGuard key, test keys)</td><td>Ansible Vault files in Git, encrypted</td><td>the encrypted files are in Git; the Vault password is in SSM (persistent layer)</td></tr>
+<tr><td>Ansible Vault password</td><td>SSM Parameter Store</td><td>persistent Terraform layer, <code>prevent_destroy</code></td></tr>
+<tr><td>Terraform state</td><td>S3 bucket <code>ahmed-statefile</code></td><td>bootstrap layer, versioned, never destroyed</td></tr>
+<tr><td>User homes, team shares, central logs, reports</td><td>util01 <code>vg_data</code>, backed up to S3</td><td>backed up before <code>down</code>, restored onto the new volume on <code>up</code></td></tr>
+<tr><td>Local state on servers (packages, caches)</td><td>each host's root disk</td><td>it does not: rebuilt by Ansible</td></tr>
+</table>
+<p>util01's two data disks (20 GB and 10 GB) form the volume group <code>vg_data</code>, with three logical volumes:</p>
+<table>
+<tr><th>Logical volume</th><th>Size</th><th>Mounted at</th><th>Quota</th><th>Seen on the workstations as</th></tr>
+<tr><td>lv_home</td><td>12 GB</td><td>/export/home</td><td>XFS user quota: default soft 1 GB / hard 1.5 GB; contractor1 50 MB</td><td>/users/&lt;name&gt; (autofs)</td></tr>
+<tr><td>lv_teams</td><td>8 GB</td><td>/export/teams</td><td>XFS project quota per team: 2 GB (contractors 1 GB, company 4 GB)</td><td>/teams/&lt;team&gt; (autofs)</td></tr>
+<tr><td>lv_logs</td><td>6 GB</td><td>/srv/logs</td><td>none; a space guard keeps it under 85%</td><td>(util01 only)</td></tr>
+</table>
+<p>About 4 GB of the volume group is left free for growth. Volumes grow online with <code>lvextend --resizefs</code>, and a disk is added by adding an EBS volume in Terraform (D-061).</p>
+
+<h2>3.5 The three Terraform layers</h2>
+<table>
+<tr><th>Layer</th><th>Directory</th><th>State key</th><th>Contents</th><th>Lifetime</th></tr>
+<tr><td>bootstrap</td><td><code>terraform/bootstrap</code></td><td>ahmed-infra/bootstrap.tfstate</td><td>The state bucket itself (adopted with import)</td><td>permanent, <code>prevent_destroy</code></td></tr>
+<tr><td>persistent</td><td><code>terraform/persistent</code></td><td>ahmed-infra/persistent.tfstate</td><td>SSM Vault password; S3 backup bucket</td><td>permanent, <code>prevent_destroy</code></td></tr>
+<tr><td>lab</td><td><code>terraform/</code></td><td>ahmed-infra/terraform.tfstate</td><td>VPC, subnets, NAT, security groups, hosts, disks, IAM roles, Instance Connect, VPN route (169 resources)</td><td>destroyed after every session</td></tr>
+</table>
+<p>A separate state per layer makes the boundary structural: <code>terraform destroy</code> in the lab layer simply cannot see the persistent resources (D-042).</p>

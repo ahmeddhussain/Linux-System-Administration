@@ -1,0 +1,189 @@
+<h1>5. Ansible, playbook by playbook and role by role</h1>
+
+<h2>5.1 How Ansible runs in this lab</h2>
+<ul>
+<li><b>Only on control01</b>, from <code>~/ahmed-infra/ansible</code>, inside the virtual environment <code>~/ansible-venv</code> (ansible-core 2.18, boto3). Changes are made on the laptop, committed and <b>pushed</b>; control01 pulls them. Git is the only way code reaches the servers (D-028).</li>
+<li>It connects as the local <b><code>ansible</code></b> account on every host, with the key <code>~/.ssh/ansible_ed25519</code> generated on control01, and passwordless sudo. The account is local, not an IPA user, so automation works even when IPA is down, and while IPA is being installed (D-027).</li>
+<li><b><code>ansible.cfg</code></b>: inventory <code>inventory/aws_ec2.yml</code>; 10 forks; every run logged to <code>~/ansible.log</code>; any task over 30 minutes fails instead of hanging; the vault password from <code>scripts/vault-password.py</code>; become with sudo; pipelining; SSH keepalives so a dead connection is noticed within a minute.</li>
+<li><b>Dynamic inventory</b> (<code>aws_ec2.yml</code>): running instances tagged <code>Project=ahmed-infra</code>, named by their <code>Name</code> tag, reached on their private IP (control01 itself through a local connection). The SSH host key is remembered under the <b>instance ID</b> (<code>HostKeyAlias</code>), so a replaced server at the same IP is recognised as a new machine instead of triggering a false alarm (D-036). Groups: <code>role_*</code> and <code>team_*</code> from the tags, <code>infra</code>, and the groups the FreeIPA collection expects: <code>ipaservers</code> (idm01) and <code>ipaclients</code> (everything else).</li>
+<li>Pinned collections (<code>requirements.yml</code>): <code>ansible.posix</code> 2.2.2, <code>amazon.aws</code> 12.0.0, <code>freeipa.ansible_freeipa</code> 1.17.0. They are bumped on purpose, in their own commit (D-030).</li>
+</ul>
+
+<h2>5.2 The data files (what you edit day to day)</h2>
+<table>
+<tr><th>File</th><th>Contents</th></tr>
+<tr><td><code>group_vars/all.yml</code></td><td>The <code>ansible</code> user and key; the IPA domain and realm; the proxy host and ports; which teams get the allow-list policy; the compliance minimum scores and every documented CIS exception, with its reason</td></tr>
+<tr><td><code>group_vars/ipaclients.yml</code></td><td>Enrollment settings: full server names, idm01 as the first DNS server, SSHFP publishing</td></tr>
+<tr><td><code>group_vars/role_control.yml</code></td><td>control01 runs modules with the system Python (to see IPA's Python libraries)</td></tr>
+<tr><td><code>group_vars/role_idm/main.yml</code></td><td>The IPA server install: realm, integrated DNS with forwarding to the VPC resolver, reverse zones per subnet, no <code>allow_all</code> HBAC rule, the fixed ID range 455400000 to 455599999</td></tr>
+<tr><td><code>group_vars/role_idm/identity.yml</code></td><td><b>The company's people</b>: users (fixed UID, groups, SSH keys, quota, expiry), groups (fixed GID), host groups, HBAC rules, sudo rules, automount settings. The next free ID is noted in the file.</td></tr>
+<tr><td><code>group_vars/role_idm/vault.yml</code></td><td>Encrypted: the IPA admin and Directory Manager passwords</td></tr>
+<tr><td><code>group_vars/role_gateway/main.yml</code></td><td>VPN peers (name, team, fixed VPN address, public key), the server's public key, and <code>vpn_team_policy</code> (what each team's range may reach)</td></tr>
+<tr><td><code>group_vars/role_gateway/vault.yml</code></td><td>Encrypted: gw01's WireGuard private key, so the server key survives rebuilds</td></tr>
+<tr><td><code>group_vars/role_util/storage.yml</code></td><td>Default home quota, team shares and their quotas, the company share</td></tr>
+<tr><td><code>group_vars/role_util/web_policy.yml</code></td><td>Squid's deny lists (social, streaming) and the allow-list</td></tr>
+<tr><td><code>tests/*.vault.yml</code></td><td>Encrypted private test keys for the IPA users and the VPN test peers (used only by <code>test-lab.sh</code>)</td></tr>
+</table>
+
+<h2>5.3 <code>site.yml</code>: the whole company, in order</h2>
+<p>One playbook configures everything. The order matters, and each step exists for a reason:</p>
+<table>
+<tr><th>#</th><th>Play</th><th>Hosts</th><th>Why here</th></tr>
+<tr><td>1</td><td>Patch util01 first (<code>patch.yml</code>)</td><td>util01</td><td>Workstations reach package repositories only through Squid on util01, so util01 must be patched and serving first (INC-004)</td></tr>
+<tr><td>2</td><td><code>base</code>, <code>web_proxy</code></td><td>util01</td><td>Squid exists before any workstation needs packages</td></tr>
+<tr><td>3</td><td>dnf through the proxy (<code>proxy_client</code> tasks_from dnf)</td><td>workstations</td><td>Set by IP address: names do not resolve before IPA exists</td></tr>
+<tr><td>4</td><td>Patch everyone else</td><td>all except util01</td><td>One patch level for the whole fleet before configuring (D-034)</td></tr>
+<tr><td>5</td><td><code>base</code></td><td>all</td><td>Baseline: packages, time, SELinux, firewall, SSH, banners, pinned names</td></tr>
+<tr><td>6</td><td>FreeIPA (<code>idm.yml</code>)</td><td>idm01, then clients</td><td>Identity before anything that needs users, certificates or DNS</td></tr>
+<tr><td>7</td><td><code>util_storage</code>, <code>log_server</code>, <code>nfs_server</code>, <code>team_shares</code></td><td>util01</td><td>The data volume first (homes and logs live on it); its owners resolve through IPA</td></tr>
+<tr><td>8</td><td><code>log_forwarder</code></td><td>all</td><td>Needs IPA certificates and util01's log server</td></tr>
+<tr><td>9</td><td><code>audit</code></td><td>all</td><td>Its records travel through the forwarder</td></tr>
+<tr><td>10</td><td><code>nfs_client</code>, <code>proxy_client</code></td><td>workstations</td><td>Need IPA's automount maps and user IDs</td></tr>
+<tr><td>11</td><td><code>wireguard_gateway</code></td><td>gw01</td><td>The VPN</td></tr>
+<tr><td>12</td><td>WireGuard tools for the test peers</td><td>control01</td><td>So <code>test-lab.sh</code> can act as a VPN client of each team</td></tr>
+<tr><td>13</td><td><code>hardening</code></td><td>all</td><td><b>Last</b>: every service is installed with stock settings first, then the host is hardened, then the tests prove everything still works (D-064)</td></tr>
+</table>
+<p>A second run of <code>site.yml</code> with no code changes reports <b><code>changed=0</code> on every host</b>. That idempotency is checked by <code>lab.sh verify --full</code>.</p>
+
+<h2>5.4 The roles</h2>
+
+<h3>base (every host)</h3>
+<ul>
+<li>Installs troubleshooting packages: vim, tmux, rsync, lsof, tcpdump, bind-utils, ncat, traceroute, SELinux tools, firewalld, chrony.</li>
+<li><b>Pins idm01 and util01 in <code>/etc/hosts</code></b> from the inventory's fixed IPs, so the proxy, NFS and log server stay reachable even if IPA's DNS is down (D-068, DRILL-001).</li>
+<li>UTC timezone and chrony; SELinux enforcing; firewalld running. It waits for <code>firewall-cmd --state</code>, because systemd reports firewalld "started" before it is ready (INC-003). SSH is allowed in the host firewall.</li>
+<li>The SSH hardening drop-in <b><code>/etc/ssh/sshd_config.d/01-ahmed-hardening.conf</code></b>, mode 0600. It is named <code>01-</code> on purpose: sshd keeps the <b>first</b> value it reads, and IPA's <code>04-ipa.conf</code> had been turning keyboard-interactive (PAM password) logins back on (INC-007). Settings:
+<ul>
+<li>Public keys only: no passwords, no keyboard-interactive, no GSSAPI, no host-based login, no root login, no user environment.</li>
+<li>X11 forwarding off; on workstations all forwarding is off.</li>
+<li>MaxAuthTries 4, MaxSessions 10, MaxStartups 10:30:60, LoginGraceTime 30.</li>
+<li>A silent client is dropped after one unanswered 300 s check; LogLevel VERBOSE; a banner.</li>
+</ul>
+The whole configuration is validated with <code>sshd -t</code> before any restart, so a typo cannot lock everyone out.</li>
+<li>Banners: <code>/etc/issue.net</code> and <code>/etc/issue</code> carry the company warning, with no OS details; a post-login message.</li>
+</ul>
+
+<h3>FreeIPA: <code>idm.yml</code> and five roles</h3>
+<ol>
+<li><b>Server</b> (<code>freeipa.ansible_freeipa.ipaserver</code> on idm01, <code>state: present</code> passed explicitly), then <b><code>ipa_server_verify</code></b>: every IPA service runs; admin gets a Kerberos ticket and can use the API; DNS answers for <code>ahmed.internal</code> and forwards other names.</li>
+<li><b>Clients</b>, two at a time, control01 last and alone (it runs the playbook). Before each enrollment, <b><code>ipa_client_prepare</code></b>:
+<ul>
+<li>removes an empty <code>/etc/ipa/ca.crt</code> left by a failed attempt;</li>
+<li>creates a <b>one-time enrollment password</b> on idm01, so the client never sees the admin password;</li>
+<li>releases the IPA entry of a host that was rebuilt, because IPA refuses a one-time password for a host it still considers enrolled;</li>
+<li>registers the host with its DNS record.</li>
+</ul>
+Then <code>ipaclient</code> enrolls it, and <b><code>ipa_client_health</code></b> checks that SSSD is online and resolves IPA users, restarting an SSSD stuck offline.</li>
+<li><b><code>ipa_identity</code></b> on idm01: groups, users (SSH keys, home <code>/users/&lt;name&gt;</code>, expiry), memberships, the company group <code>employees</code>, host groups, HBAC rules, PTR records for every host (rsyslog names log directories by reverse DNS), the automount maps for homes and team shares, sudo commands and rules. Everything comes from <code>identity.yml</code>.</li>
+<li><b><code>ipa_client_config</code></b> on every client: labels and creates <code>/users</code>, records a checksum of the identity data, and <b>resets SSSD's cache when it changes</b>. SSSD otherwise keeps an empty sudo-rule cache from before the rules existed.</li>
+</ol>
+<div class="box warn"><div class="box-title">The <code>state</code> trap</div>
+The AWS inventory gives every host a variable <code>state</code> (the instance state, "running"). The FreeIPA roles use a variable of the same name to choose install or <i>uninstall</i>, so both were silently skipped. Passing <code>state: present</code> as a role parameter outranks the inventory variable.</div>
+
+<h3>util_storage (util01)</h3>
+<ul>
+<li>Installs LVM and the AWS CLI. It finds the data disks (the unpartitioned NVMe disks) and refuses to continue if their number differs from Terraform's.</li>
+<li>Adds only <b>blank</b> disks to <code>vg_data</code>: a disk with any filesystem or LVM signature stops the run instead of being overwritten.</li>
+<li>Creates or grows <code>lv_home</code>, <code>lv_teams</code> and <code>lv_logs</code> (online <code>lvextend --resizefs</code>), makes XFS filesystems and mounts them permanently. Quota accounting (uquota, prjquota) is switched on at mount time, because XFS cannot enable it with a remount.</li>
+<li>SELinux labels: homes are labelled like <code>/home</code> (equivalence rule), logs as <code>var_log_t</code>, team shares as <code>public_content_rw_t</code>.</li>
+<li>Installs <code>/usr/local/sbin/ahmed-backup</code> (backup, restore, verify, drill) and a daily timer at 02:00.</li>
+<li><b>Restores the latest backup only onto a volume group created in this run</b>, so it never overwrites live data.</li>
+</ul>
+
+<h3>log_server (util01)</h3>
+<ul>
+<li>rsyslog with the OpenSSL TLS driver listens on TCP 6514 and accepts only senders presenting a valid IPA certificate.</li>
+<li>It stores <code>/srv/logs/&lt;sender FQDN&gt;/&lt;program&gt;.log</code>, with the host name taken from the sender's reverse DNS rather than from the message, so one host cannot write into another's directory.</li>
+<li>Audit records go raw into <code>audit.log</code>, so <code>ausearch -if</code> reads them.</li>
+<li>Directory and file modes 0750/0640 with group <code>security</code> (laila). The service <code>UMask</code> is overridden to 0027, because rsyslog's default turned 0640 into 0600.</li>
+<li>14 days of rotation.</li>
+<li>The daily audit report: the script <code>ahmed-audit-report</code> plus an hourly timer.</li>
+<li>The <b>log space guard</b> <code>ahmed-logspace</code> runs every 5 minutes. Above 85% use it deletes the oldest rotated logs until use is under 80%, because rsyslog drops messages it cannot write (DRILL-002).</li>
+<li>The log port is open in the host firewall to the VPC only.</li>
+</ul>
+
+<h3>log_forwarder (every host)</h3>
+<p>certmonger requests the host's own certificate from the IPA CA (<code>ipa-getcert</code>) and renews it automatically. rsyslog then forwards every message to <code>util01.ahmed.internal:6514</code> over TLS, checking util01's name. A disk-assisted queue (200 MB, infinite retry) keeps messages while util01 is unreachable.</p>
+
+<h3>audit (every host)</h3>
+<p>Installs auditd and its syslog plugin (<code>audispd-plugins</code>). Every record is tagged with the host name (<code>name_format = HOSTNAME</code>), and audit lines are kept out of the local <code>/var/log/messages</code>. The rules are in <code>/etc/audit/rules.d/50-ahmed.rules</code>, each with a key:</p>
+<table>
+<tr><th>Key</th><th>Watches</th></tr>
+<tr><td>identity</td><td>writes to passwd, group, shadow, gshadow, opasswd</td></tr>
+<tr><td>sudoers</td><td>/etc/sudoers and sudoers.d</td></tr>
+<tr><td>sshd</td><td>the SSH server configuration</td></tr>
+<tr><td>identity-config</td><td>SSSD, krb5 and /etc/ipa (how the host trusts IPA)</td></tr>
+<tr><td>time-change</td><td>settimeofday, clock_settime, /etc/localtime</td></tr>
+<tr><td>modules</td><td>kernel module load and unload</td></tr>
+<tr><td>audit-config</td><td>changes to the audit configuration itself</td></tr>
+<tr><td>privileged</td><td>every command a real user (UID 1000 and up) runs as root, including inside <code>sudo -i</code>; the ansible account is excluded (its changes are traced in Git and ansible.log)</td></tr>
+</table>
+<p>The role checks that every keyed rule loaded, because <code>augenrules</code> skips a bad line silently (D-063).</p>
+
+<h3>nfs_server (util01)</h3>
+<ul>
+<li>NFSv4 over TCP only (v3 and UDP off).</li>
+<li>Exports <code>/export/home</code> and <code>/export/teams</code> to the two workstation addresses only, <code>sec=sys</code>, <code>root_squash</code>; NFS is open in the host firewall to the workstations only.</li>
+<li>Creates every IPA user's home from <code>/etc/skel</code> (copying its contents, not <code>/etc/skel/.</code>, whose 0755 mode once opened every home), re-owns files by name after a restore, keeps homes private and sets each user's quota.</li>
+<li>Applies SELinux labels and confirms that NFSv3 is really off and that the exports are active.</li>
+</ul>
+
+<h3>team_shares (util01)</h3>
+<p>Creates <code>/export/teams/&lt;team&gt;</code> mode 2770, so setgid gives new files the team's group and nobody else may enter. A <b>default ACL</b> keeps new files group-writable whatever the creator's umask. <code>company</code> is mode 3770 with group <code>employees</code>: the sticky bit lets only a file's owner delete it. Each share gets an XFS project ID equal to the group's fixed GID (stable across rebuilds) and its quota.</p>
+
+<h3>nfs_client (workstations)</h3>
+<p>Sets the SELinux boolean for homes on NFS, installs autofs, configures it to read automount maps from IPA (<code>ipa-client-automount</code>; the marker is SSSD's automount location), starts it, and confirms it knows both maps. Users' homes appear at <code>/users/&lt;name&gt;</code> and team shares at <code>/teams/&lt;team&gt;</code> on first access.</p>
+
+<h3>web_proxy (util01)</h3>
+<p>Squid has two ports: 3128 "standard" and 3129 "allow-list" (an SELinux port label is added for 3129). It allows only CONNECT to port 443, from the workstations only. The standard port denies the social and streaming lists; the allow-list port allows only its list; there is no caching and no TLS interception. The configuration is validated by Squid before it is used; the access log also goes to syslog; the ports are open to the workstation subnet only.</p>
+
+<h3>proxy_client (workstations)</h3>
+<ul>
+<li>dnf uses the proxy (by IP).</li>
+<li>Every login shell gets <code>https_proxy</code> pointing at its team's port, through <code>/etc/profile.d/ahmed-proxy.sh</code>.</li>
+<li>Variables can be changed by the user, so the real enforcement is an <b>nftables rule matched on the socket owner's UID</b>: users of allow-list teams are refused on port 3128. Their UIDs are looked up through SSSD, and the run stops if one cannot be resolved, since the rule would otherwise silently miss them.</li>
+<li>The rule is checked with <code>nft -c</code> and loaded by a boot service. It lives in its own table, so firewalld's tables are never touched.</li>
+</ul>
+
+<h3>wireguard_gateway (gw01; <code>tools.yml</code> also on control01)</h3>
+<ul>
+<li>Refuses to run without peers, with placeholder keys, or without the vault key. It derives the public key from the vault private key and <b>refuses a key that does not match the recorded public key</b>, so a wrong vault file cannot silently break every client.</li>
+<li>Installs <code>wireguard-tools</code> from a repository definition limited to that one EPEL package over HTTPS, and wstunnel 11.1.0 (pinned, SHA-256 verified, root-owned, SELinux <code>bin_t</code>). It loads the kernel module and enables IPv4 forwarding.</li>
+<li>Writes <code>wg0.conf</code>. WireGuard's own UDP port is closed to the outside; only wstunnel on TCP 443 is open.</li>
+<li>Per-team firewalld <b>zones</b> (one per team range, by source address) and <b>policies</b> (one per team, allowing exactly the hosts and ports in <code>vpn_team_policy</code>) are written as whole XML files from templates, so a rule removed from the data also disappears from gw01 (D-052). wg0 itself sits in a zone that drops everything else.</li>
+<li>Runs wstunnel as an unprivileged systemd service, then confirms that every configured peer is in the running tunnel, the zone binding, every policy, and the listener.</li>
+</ul>
+
+<h3>hardening (every host, last): CIS Level 1 fixes</h3>
+<table>
+<tr><th>Task file</th><th>What it sets</th></tr>
+<tr><td><code>kernel.yml</code></td><td>Kernel: dmesg restricted, ptrace limited to children, full ASLR, no setuid core dumps; no core dumps stored or allowed. Network (<code>60-ahmed-network.conf</code>): no forwarding (except gw01), no redirects sent or accepted, no source routing, strict reverse-path filter, martians logged, ICMP broadcasts and bogus errors ignored, SYN cookies, no IPv6 router advertisements</td></tr>
+<tr><td><code>modules.yml</code></td><td>13 kernel modules blocked (rare filesystems, usb-storage, firewire, unused protocols such as sctp, dccp, rds, tipc)</td></tr>
+<tr><td><code>services.yml</code></td><td>nfs-server, rpcbind and autofs <b>masked</b> where the design does not need them</td></tr>
+<tr><td><code>cron.yml</code></td><td>Root-only crontab and cron directories; empty <code>cron.allow</code> and <code>at.allow</code> (only root schedules jobs); no deny file</td></tr>
+<tr><td><code>mounts.yml</code></td><td><code>/dev/shm</code> nodev, nosuid, noexec; <b><code>/tmp</code> on its own tmpfs</b> (<code>tmp.mount</code>), nodev, nosuid, noexec, because the image has no /tmp partition and a root disk cannot be repartitioned in place</td></tr>
+<tr><td><code>logging.yml</code></td><td>Persistent, compressed journal; no forwarding to syslog (rsyslog reads the journal itself); local log files 0640; loopback trusted in firewalld</td></tr>
+<tr><td><code>ssh.yml</code></td><td>Every sshd drop-in mode 0600, and every drop-in (IPA's, the OS's) also says GSSAPI and keyboard-interactive "no", so a future rename cannot bring password logins back (INC-007)</td></tr>
+<tr><td><code>pam.yml</code></td><td>authselect custom profile <code>custom/ahmed</code> (a copy of IPA's sssd profile) with faillock (5 failures, 15 minutes), password history (24, root included) and no empty passwords. pwquality: 14 characters, 4 classes. New accounts: max password age 365, disabled 45 days after expiry, umask 027. 15-minute idle shell timeout; <code>su</code> limited to an empty group; dotfiles in local homes tightened</td></tr>
+<tr><td><code>sudo.yml</code></td><td><code>use_pty</code>, its own log <code>/var/log/sudo.log</code> (rotated), re-authentication after 15 minutes</td></tr>
+<tr><td><code>crypto.yml</code></td><td>System crypto policy <code>DEFAULT:NO-SSHCBC:NO-SSHWEAKCIPHERS:NO-SSHWEAKMACS:NO-WEAKMAC</code> (SSH ciphers and MACs only; Kerberos unaffected); sshd restarted</td></tr>
+<tr><td><code>aide.yml</code></td><td>AIDE installed; audit tools protected; nightly check to syslog (so to util01); the database rebuilt at the end of every run, because changes made by Ansible are authorized</td></tr>
+</table>
+
+<h3>compliance (every host; <code>compliance.yml</code>)</h3>
+<p>Installs <code>openscap-scanner</code> and <code>scap-security-guide</code> and writes a <b>tailoring file</b> from <code>compliance_exceptions</code>. It scans with <code>oscap xccdf eval</code> against the tailored CIS Level 1 profile, reads the score and the pass/fail counts, compresses the HTML report and XCCDF results (about 19 MB uncompressed per host), and brings them to control01. On util01, <code>publish.yml</code> puts them in <code>/srv/logs/reports/openscap/&lt;fqdn&gt;/</code> with a <code>summary.txt</code> (score against each role's minimum), readable by the security team.</p>
+
+<h2>5.5 The other playbooks</h2>
+<table>
+<tr><th>Playbook</th><th>Purpose</th></tr>
+<tr><td><code>bootstrap.yml</code></td><td>One time per rebuild, as <code>ec2-user</code> with the forwarded laptop key: creates the <code>ansible</code> account (password locked), authorizes exactly control01's key, and gives passwordless sudo (validated with visudo)</td></tr>
+<tr><td><code>patch.yml</code></td><td>Patches a host set two at a time: free-space and failed-service checks, update (or <code>patch_security_only=true</code>), <code>sshd -t</code>, reboot if <code>dnf needs-restarting -r</code> says so (never control01 itself), no newly failed service, a record line in <code>/var/log/ahmed-patch.log</code> and syslog, AIDE re-baseline</td></tr>
+<tr><td><code>patch-cycle.yml</code> + <code>patch-gate.yml</code></td><td>The monthly cycle in rings: ws-dev01 (canary); ws-ops01 and util01; gw01 and idm01; control01 last. After each ring the gate checks every host finished and that IPA, SSSD, util01's services and the VPN answer; any failure ends the cycle (D-065)</td></tr>
+<tr><td><code>idm.yml</code></td><td>FreeIPA (above)</td></tr>
+<tr><td><code>compliance.yml</code></td><td>The CIS scan (above)</td></tr>
+<tr><td><code>drills/restore.yml</code></td><td>Runs <code>ahmed-backup drill</code> on util01 (D-066)</td></tr>
+<tr><td><code>drills/idm-outage.yml</code></td><td>Stops IPA, observes the clients (cache, DNS, SSSD state), restarts it, measures each client's recovery</td></tr>
+<tr><td><code>drills/logs-disk-full.yml</code></td><td>Fills util01's log volume until writes are refused, sends a message from every host, frees the space, measures what arrived</td></tr>
+<tr><td><code>drills/package-rollback.yml</code></td><td>Downgrades a package on the canary, checks health, patches forward</td></tr>
+<tr><td><code>drills/report.yml</code></td><td>Shared: appends each drill's result line on util01 and to syslog</td></tr>
+</table>

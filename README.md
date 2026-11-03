@@ -49,6 +49,7 @@ Teams, access rules and the checklist for adding a team:
 | `docs/incident-reports/` | Real problems met while building, with evidence and root cause. |
 | `docs/drills/` | Planned incident drills and their measured results. |
 | `docs/runbooks/` | Operating the VPN client, FreeIPA, storage and patching. |
+| `docs/guide/` | **The complete guide (PDF):** architecture, every tool, every file, role and decision, day-to-day operations, interview preparation. Source in `src/`, rebuilt with `build.py`. |
 
 ## Using it
 Requires AWS credentials, Terraform >= 1.11, and an SSH agent on a Linux

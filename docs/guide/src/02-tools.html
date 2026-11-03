@@ -1,0 +1,112 @@
+<h1>2. Tools and technologies, explained from zero</h1>
+<p class="part-intro">Each section says what the tool is, what problem it solves, and exactly how this project uses it.</p>
+
+<h2>2.1 AWS building blocks</h2>
+<table>
+<tr><th>Service</th><th>What it is</th><th>How the lab uses it</th></tr>
+<tr><td><b>VPC</b> (Virtual Private Cloud)</td><td>Your own private network inside AWS, with an address range you choose.</td><td><code>10.0.0.0/16</code>, the company network.</td></tr>
+<tr><td><b>Subnet</b></td><td>A slice of the VPC's addresses in one Availability Zone. "Public" subnets route to the internet directly; "private" subnets do not.</td><td>public <code>10.0.0.0/24</code> (gw01, NAT), infra <code>10.0.1.0/24</code> (servers), workstation <code>10.0.2.0/24</code>, app <code>10.0.3.0/24</code> (empty, for app01).</td></tr>
+<tr><td><b>Internet Gateway</b></td><td>The VPC's door to the internet for public subnets.</td><td>Used by gw01 and the NAT gateway.</td></tr>
+<tr><td><b>NAT Gateway</b></td><td>Lets hosts in private subnets open connections to the internet (for updates) while staying unreachable from it.</td><td>Servers download packages through it. About $32/month if left running, which is one reason the lab is destroyed after each session.</td></tr>
+<tr><td><b>Route table</b></td><td>Decides where packets go next.</td><td>Private subnets: default route to the NAT; <code>10.8.0.0/16</code> (VPN clients) to gw01 so replies reach VPN users.</td></tr>
+<tr><td><b>Security Group (SG)</b></td><td>A stateful firewall attached to each server's network interface. Rules say which traffic may enter and leave; replies are allowed automatically.</td><td>One SG per host role, default deny, every allowed flow declared (chapter 4.4).</td></tr>
+<tr><td><b>EC2 instance</b></td><td>A virtual server.</td><td>The six hosts.</td></tr>
+<tr><td><b>EBS volume</b></td><td>A virtual disk attached to an instance.</td><td>Encrypted gp3 root disks; util01 has two extra data disks.</td></tr>
+<tr><td><b>Elastic IP</b></td><td>A public IPv4 address.</td><td>gw01 only. It changes on every rebuild, so the VPN client is refreshed after <code>up</code>.</td></tr>
+<tr><td><b>IAM role / instance profile</b></td><td>Permissions given to a server instead of storing passwords or access keys on it. The server gets short-lived credentials automatically.</td><td>control01 may list instances and read the Vault password; util01 may read and write its own backups. Nothing else.</td></tr>
+<tr><td><b>IMDSv2</b></td><td>The instance metadata service (where an instance gets its credentials), in its token-protected version 2.</td><td>Required on every host (<code>http_tokens = "required"</code>), which blocks a classic credential-stealing attack.</td></tr>
+<tr><td><b>EC2 Instance Connect Endpoint (EICE)</b></td><td>An AWS-managed tunnel into a private instance, authenticated by AWS credentials, with no public port.</td><td>The <b>break-glass</b> path to control01 if the VPN is down, and the way <code>lab.sh</code> reaches control01.</td></tr>
+<tr><td><b>SSM Parameter Store</b></td><td>A key-value store for configuration and secrets (SecureString parameters are encrypted with KMS).</td><td>Holds the Ansible Vault password.</td></tr>
+<tr><td><b>S3</b></td><td>Object storage ("buckets"). Versioning keeps old versions of every object.</td><td>Terraform state (bucket <code>ahmed-statefile</code>) and util01's backups.</td></tr>
+<tr><td><b>Subnet CIDR reservation</b></td><td>A block of addresses AWS will never auto-assign.</td><td><code>10.0.x.8/29</code> in each subnet, so no AWS-managed interface can take a server's fixed IP (INC-006, D-062).</td></tr>
+</table>
+
+<h2>2.2 RHEL 10 and the operating-system tools</h2>
+<p><b>Red Hat Enterprise Linux 10</b> is the distribution (D-001): the same platform as the Red Hat certification labs and most enterprises. The official Red Hat image is looked up by name; the hosts are then patched in place to RHEL 10.2.</p>
+<table>
+<tr><th>Tool</th><th>What it does</th><th>Used for</th></tr>
+<tr><td><b>dnf</b></td><td>Package manager: installs, updates, downgrades, keeps a history of every transaction (<code>dnf history</code>).</td><td>Patching, every role's packages, rollback.</td></tr>
+<tr><td><b>systemd</b></td><td>Starts and supervises services; timers replace cron jobs; <code>journald</code> collects logs.</td><td>Every service; backup, report and guard timers.</td></tr>
+<tr><td><b>SELinux</b></td><td>Mandatory access control: every process and file has a label, and policy decides which labels may touch which. Root cannot override it.</td><td>Always <code>enforcing</code>. Data areas get correct labels (NFS homes labelled like <code>/home</code>).</td></tr>
+<tr><td><b>firewalld</b></td><td>The host firewall (on top of nftables), organised in <i>zones</i> and, for routed traffic, <i>policies</i>.</td><td>Second firewall layer on every host; per-team VPN policy on gw01.</td></tr>
+<tr><td><b>nftables</b></td><td>The Linux kernel packet filter.</td><td>A small extra table on workstations enforces per-user proxy ports.</td></tr>
+<tr><td><b>chrony</b></td><td>Time synchronisation.</td><td>Synchronises with the AWS time service. Kerberos fails if clocks differ by more than 5 minutes.</td></tr>
+<tr><td><b>cloud-init</b></td><td>Configures an instance on its first boot from "user data".</td><td>Sets each host's name and FQDN (<code>ws-dev01.ahmed.internal</code>).</td></tr>
+<tr><td><b>OpenSSH</b></td><td>Remote login. <code>sshd_config.d/</code> drop-ins are read in name order, and <b>the first value read for a keyword wins</b>.</td><td>Key-only logins; our drop-in is <code>01-ahmed-hardening.conf</code> so it wins (INC-007).</td></tr>
+<tr><td><b>PAM, authselect</b></td><td>PAM is the pluggable authentication stack; authselect is RHEL's supported way to configure it through profiles and features.</td><td>Custom profile <code>custom/ahmed</code> with faillock, password history, no empty passwords.</td></tr>
+<tr><td><b>crypto-policies</b></td><td>One system-wide setting for allowed ciphers and algorithms used by OpenSSL, OpenSSH, GnuTLS and others.</td><td><code>DEFAULT:NO-SSHCBC:NO-SSHWEAKCIPHERS:NO-SSHWEAKMACS:NO-WEAKMAC</code> (CIS).</td></tr>
+<tr><td><b>LVM</b></td><td>Logical Volume Manager: combines disks into a <i>volume group</i> and carves <i>logical volumes</i> that can grow online.</td><td>util01: volume group <code>vg_data</code> over two disks.</td></tr>
+<tr><td><b>XFS</b></td><td>RHEL's default filesystem; supports user quotas and <i>project</i> quotas (a limit for a directory tree).</td><td>Home quotas per user, team-share quotas per team.</td></tr>
+<tr><td><b>POSIX ACLs, setgid</b></td><td>setgid on a directory makes new files inherit its group; a <i>default ACL</i> gives new files group write.</td><td>Team shares stay writable by the whole team.</td></tr>
+</table>
+
+<h2>2.3 Terraform</h2>
+<p>Terraform describes infrastructure as code in HCL files. <code>terraform plan</code> compares the code with what exists and shows what it would add, change or destroy; <code>terraform apply</code> does it. It records what it created in a <b>state file</b>, the map between code and real resources. Concepts the lab uses:</p>
+<ul>
+<li><b>Remote state with locking:</b> state is stored in the S3 bucket <code>ahmed-statefile</code>, versioned and TLS-only; <code>use_lockfile = true</code> creates a lock object in S3 so two runs never write at once (D-016, D-044).</li>
+<li><b>Layers:</b> three separate configurations with separate states: <code>terraform/bootstrap</code> (the state bucket itself), <code>terraform/persistent</code> (things that survive teardown) and <code>terraform/</code> (the lab, destroyed every session) (D-042).</li>
+<li><b>Modules:</b> reusable building blocks with inputs and outputs: <code>network</code>, <code>security-groups</code>, <code>ec2-instance</code> (D-014).</li>
+<li><b><code>for_each</code>:</b> one block creates many resources from a map. Every host comes from one entry in the <code>hosts</code> map.</li>
+<li><b>Validations:</b> rules on input variables, for example "two hosts may not share an IP" or "a host's IP must be in its subnet's reserved block".</li>
+<li><b><code>import</code> and <code>moved</code> blocks:</b> adopt an existing resource into code without recreating it; rename a resource without destroying it.</li>
+<li><b>Ephemeral resources and write-only arguments</b> (Terraform 1.11+): generate a value and send it to AWS without it ever being stored in state, which is how the Vault password is created.</li>
+<li><b><code>lifecycle</code>:</b> <code>prevent_destroy</code> refuses to delete precious resources; <code>ignore_changes</code> stops Terraform from replacing servers when a newer image appears; <code>create_before_destroy</code> builds a replacement before removing the old one.</li>
+<li><b><code>terraform test</code> with mocked providers:</b> tests that run in seconds without AWS credentials (D-045).</li>
+</ul>
+
+<h2>2.4 Ansible</h2>
+<p>Ansible connects to hosts over SSH and runs <b>modules</b> (small programs such as "install this package" or "write this file") as described in YAML <b>playbooks</b>. It is agentless and <b>idempotent</b>: a module changes something only if it is not already in the wanted state, so a second run reports <code>changed=0</code>. The lab's terms:</p>
+<ul>
+<li><b>Control node:</b> control01 is the only place Ansible runs, inside a Python virtual environment with pinned versions (D-028, D-030).</li>
+<li><b>Dynamic inventory:</b> the <code>amazon.aws.aws_ec2</code> plugin asks AWS which instances exist and groups them by their <code>Role</code> and <code>Team</code> tags (<code>role_util</code>, <code>team_dev</code>, ...) (D-029). Nothing can drift because AWS is the source of truth.</li>
+<li><b>Roles:</b> folders of tasks, templates, handlers and defaults for one job (<code>base</code>, <code>nfs_server</code>, ...).</li>
+<li><b>group_vars:</b> data per group, the files you edit day to day.</li>
+<li><b>Handlers:</b> tasks that run only when something changed, for example "restart sshd after its config changed".</li>
+<li><b>Templates (Jinja2):</b> config files with variables, rendered per host.</li>
+<li><b>Collections:</b> packaged modules and roles: <code>ansible.posix</code>, <code>amazon.aws</code>, <code>freeipa.ansible_freeipa</code>, pinned in <code>requirements.yml</code>.</li>
+<li><b>Ansible Vault:</b> encrypts whole files of secrets. The password comes from SSM through <code>scripts/vault-password.py</code>.</li>
+<li><b>become:</b> run as root through sudo. <b>pipelining</b> streams modules over SSH without temporary files.</li>
+</ul>
+
+<h2>2.5 FreeIPA (Red Hat Identity Management)</h2>
+<p>FreeIPA is Red Hat's central identity system, the Linux equivalent of Microsoft Active Directory (D-006). One server (idm01) bundles several well-known components:</p>
+<table>
+<tr><th>Component</th><th>Job</th></tr>
+<tr><td><b>389 Directory Server (LDAP)</b></td><td>The database of users, groups, hosts, rules and SSH keys.</td></tr>
+<tr><td><b>MIT Kerberos KDC</b></td><td>Single sign-on tickets; every enrolled host gets a <i>keytab</i>, its own Kerberos identity.</td></tr>
+<tr><td><b>BIND DNS</b> (integrated)</td><td>Serves <code>ahmed.internal</code>: host records created automatically at enrollment, service records, SSHFP records (SSH host key fingerprints), reverse (PTR) records.</td></tr>
+<tr><td><b>Dogtag CA</b></td><td>A certificate authority that issues TLS certificates to hosts and services. The lab uses it for rsyslog's TLS.</td></tr>
+<tr><td><b>certmonger</b></td><td>On clients: requests certificates from the CA and renews them before they expire.</td></tr>
+<tr><td><b>HBAC rules</b></td><td>Host-Based Access Control: <i>which users may log into which hosts</i>. The lab has no default "allow_all" rule.</td></tr>
+<tr><td><b>sudo rules</b></td><td>Central sudo policy: who may run what as whom on which hosts.</td></tr>
+<tr><td><b>Automount maps</b></td><td>Central autofs maps: <code>/users/&lt;name&gt;</code> and <code>/teams/&lt;team&gt;</code> come from util01 over NFS.</td></tr>
+<tr><td><b>Web UI and API</b></td><td>Management over HTTPS (also from the admin VPN range).</td></tr>
+</table>
+<p>On every other host, <b>SSSD</b> (System Security Services Daemon) is the client side: it answers "who is <code>sara</code>?" (UID, groups, home), fetches her SSH public key for sshd, checks HBAC rules during login, delivers sudo rules, serves automount maps, and <b>caches</b> all of it so known users keep working when idm01 is briefly down. A host joins IPA by <b>enrollment</b> (<code>ipa-client-install</code>), using a one-time password that the playbook creates for it.</p>
+
+<h2>2.6 Networking and remote access tools</h2>
+<table>
+<tr><th>Tool</th><th>What it is</th><th>In this lab</th></tr>
+<tr><td><b>WireGuard</b></td><td>A modern, minimal VPN in the Linux kernel. Each peer has a key pair; a server accepts only packets signed by a known peer key, so an unknown sender gets no answer at all.</td><td>The company VPN on gw01; one key and one fixed VPN address per user.</td></tr>
+<tr><td><b>wstunnel</b></td><td>Carries UDP or TCP traffic inside a TLS WebSocket connection on TCP 443, so it looks like HTTPS.</td><td>WireGuard's UDP was dropped on Ahmed's network (INC-001), so WireGuard travels inside wstunnel on TCP 443 (D-040). The pinned binary is checksum-verified.</td></tr>
+<tr><td><b>Squid</b></td><td>A web proxy. With HTTPS it sees only the destination domain (the CONNECT request), never the content, unless it intercepts TLS, which this lab does not.</td><td>On util01: forced proxy for workstations, one port per policy (3128 standard, 3129 allow-list).</td></tr>
+<tr><td><b>NFSv4</b></td><td>Network File System: a server exports directories that clients mount. Version 4 needs only TCP 2049.</td><td>util01 exports homes and team shares to the two workstations only.</td></tr>
+<tr><td><b>autofs</b></td><td>Mounts network directories on demand when someone opens them, and unmounts them when idle.</td><td>Workstations mount <code>/users/&lt;name&gt;</code> at login and <code>/teams/&lt;team&gt;</code> when used.</td></tr>
+</table>
+
+<h2>2.7 Logging, audit and security tools</h2>
+<table>
+<tr><th>Tool</th><th>What it is</th><th>In this lab</th></tr>
+<tr><td><b>rsyslog</b></td><td>The classic syslog daemon; can send and receive logs over TCP with TLS, and queue messages on disk.</td><td>Every host forwards everything to util01 on TCP 6514, TLS with IPA certificates; util01 stores <code>/srv/logs/&lt;fqdn&gt;/&lt;program&gt;.log</code>.</td></tr>
+<tr><td><b>auditd</b></td><td>The Linux audit system: the kernel records security events (file changes, commands, logins) according to rules; <code>ausearch</code> searches the records, <code>aureport</code> summarises them.</td><td>Keyed rules on every host; records forwarded to util01 by the audit syslog plugin.</td></tr>
+<tr><td><b>OpenSCAP</b> and <b>SCAP Security Guide</b></td><td>OpenSCAP is a scanner; the SCAP Security Guide (SSG) ships benchmark profiles such as CIS and DISA STIG. Terms: <i>XCCDF</i> (the checklist and results format), <i>OVAL</i> (how each check is tested), <i>profile</i> (a selection of rules), <i>tailoring file</i> (your own adjustments to a profile).</td><td>CIS Level 1 scans on every host; results on util01 for the security team; 100% with documented exceptions.</td></tr>
+<tr><td><b>CIS Benchmarks</b></td><td>Security configuration baselines by the Center for Internet Security. Level 1 is practical and meant not to break services; Level 2 is stricter.</td><td>CIS Level 1 Server for servers, Workstation for workstations (D-064).</td></tr>
+<tr><td><b>AIDE</b></td><td>Advanced Intrusion Detection Environment: records checksums of system files in a database and reports any change.</td><td>Database rebuilt after every Ansible run and patch; nightly check reports changes made outside Ansible.</td></tr>
+<tr><td><b>faillock, pwquality, pwhistory</b></td><td>PAM modules: lock an account after failed passwords; enforce password strength; remember old passwords.</td><td>5 failures lock 15 minutes; 14-character, 4-class passwords; last 24 remembered.</td></tr>
+</table>
+
+<h2>2.8 Backups and the AWS CLI</h2>
+<p>Backups use two standard tools: <b>tar</b> (archives files with their permissions, ACLs, extended attributes and SELinux labels, and stores owners <i>by name</i>) and <b>awscli2</b> (streams the archive straight into S3 with no temporary file). The bucket is versioned, so every backup keeps the previous ones for 30 days. No third-party backup software or repository is needed (D-056).</p>
+
+<h2>2.9 Where each tool came from</h2>
+<p>Everything comes from Red Hat's own repositories except: the Ansible collections (Ansible Galaxy, pinned versions), <code>wireguard-tools</code> (one package from EPEL through a repository definition limited to that package, D-033), and the wstunnel binary (GitHub release, pinned version, SHA-256 verified). Keeping third-party sources to these three is deliberate.</p>

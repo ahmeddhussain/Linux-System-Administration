@@ -1,0 +1,33 @@
+<h1>11. Incidents and drills</h1>
+<p class="part-intro">Real problems met while building, with their evidence and root causes (full reports in <code>docs/incident-reports/</code>), and the planned drills (<code>docs/drills/</code>). Each one changed the code so it cannot happen again.</p>
+
+<h2>11.1 INC-001: VPN handshakes dropped</h2>
+<p><b>Symptom:</b> after the WireGuard gateway was deployed, the admin client could not keep a tunnel up. <b>Evidence:</b> gw01 received and answered every handshake, but the answers never reached the client; in a controlled test on the same port and path, plain UDP made the round trip while WireGuard traffic did not. <b>Root cause (high confidence):</b> something on the network path recognises WireGuard by its fixed handshake sizes and header bytes and drops it. Changing the port would not help. <b>Fix:</b> WireGuard carried inside TLS on TCP 443 by wstunnel (D-040), which looks like HTTPS. <b>Lesson:</b> prove a network hypothesis with a controlled comparison before redesigning.</p>
+
+<h2>11.2 INC-002: <code>site.yml</code> froze</h2>
+<p><b>Symptom:</b> during <code>lab.sh up</code> the Ansible run produced no output for over 30 minutes; <code>lab.sh resume</code> then finished normally. <b>Evidence:</b> package histories showed that no host was running a package task while it was frozen. <b>Root cause:</b> not proven; a stalled Instance Connect SSH session is the strong candidate. <b>Fix:</b> logging to <code>~/ansible.log</code>, SSH keepalives, a 30-minute task timeout, and long jobs run detached on control01 and polled (<code>run_on_control01</code>). <b>Lesson:</b> say honestly when a root cause is not proven, and make the system robust to the likely causes.</p>
+
+<h2>11.3 INC-003: firewalld "not running" on a fresh host</h2>
+<p>A task failed one second after firewalld was started. firewalld is a D-Bus service: systemd marks it "started" as soon as it owns its D-Bus name, before it has loaded its configuration. <b>Fix:</b> wait until <code>firewall-cmd --state</code> answers. <b>Lesson:</b> "the service started" is not "the service is ready".</p>
+
+<h2>11.4 INC-004: fresh build hung on workstation dnf</h2>
+<p>The first rebuild after workstations lost direct internet (D-057) hung in <code>dnf</code> on ws-dev01: they now needed Squid for packages, but Squid did not exist yet and dnf had no proxy setting. D-057 had been tested on a running lab, never from scratch. <b>Fix:</b> <code>site.yml</code> patches util01 and builds Squid first, then points workstations' dnf at it by IP. <b>Lesson:</b> every change to build order must be tested from nothing.</p>
+
+<h2>11.5 INC-005: leaked IAM key used for Amazon Bedrock</h2>
+<p>AWS emailed that the account had accepted an agreement for a model on Amazon Bedrock, which nobody had done. CloudTrail showed a <b>second IAM user's long-term access key with administrator rights</b>, leaked outside this project, being used from an unknown machine. It was blocked within minutes. <b>Impact:</b> $0, because every model call was throttled. <b>Actions:</b> the account was reduced to the root user (MFA) and one IAM user (MFA, one rotated key); every other user, role, admin group and the GitHub OIDC provider were deleted. <b>Lesson:</b> long-lived admin keys are the classic cloud breach; use MFA, least privilege and short-lived credentials.</p>
+
+<h2>11.6 INC-006: control01's IP taken by the Instance Connect Endpoint</h2>
+<p>A fresh build failed with <code>InvalidIPAddress.InUse: 10.0.1.10</code>. The Instance Connect Endpoint, created earlier in the same apply, had been given control01's fixed address by AWS. AWS-managed interfaces take any free address, and nothing reserved the hosts' fixed IPs; earlier builds had passed by luck (roughly 1% per build). <b>Fix:</b> explicit subnet CIDR reservations <code>10.0.x.8/29</code> (D-062), a validation that every host IP is inside its block, and tests. <b>Lesson:</b> a design that works "by luck" fails eventually.</p>
+
+<h2>11.7 INC-007: SSH offered password logins on every host</h2>
+<p><b>Symptom:</b> during the CIS work, <code>sshd -T</code> showed <code>kbdinteractiveauthentication yes</code> everywhere, although our drop-in said <code>no</code>. <b>Root cause:</b> sshd keeps the <b>first</b> value it reads; IPA's <code>04-ipa.conf</code> (with <code>ChallengeResponseAuthentication yes</code>, an alias) was read before our <code>10-ahmed-hardening.conf</code>. The old test tried only the <code>password</code> method, so it passed. <b>Impact:</b> IPA's <code>admin</code> (password in the vault, in the admins group allowed everywhere) could have logged in with its password; no evidence that it happened. <b>Fix:</b> the drop-in renamed <code>01-ahmed-hardening.conf</code>; every drop-in made to agree; a test that servers offer <code>publickey</code> and nothing else. <b>Lesson:</b> test what the system actually does (the methods offered), not one path of it.</p>
+
+<h2>11.8 The drills</h2>
+<table>
+<tr><th>Drill</th><th>Scenario</th><th>Finding</th><th>Change</th></tr>
+<tr><td>DRILL-001 idm-outage</td><td>All IPA services stopped</td><td>SSSD's cache works; DNS for company names failed on clients, so proxy, NFS and log forwarding broke. Recovery took about a minute after the restart.</td><td>D-068 pinned names; the rerun showed DNS working; replica is roadmap 6</td></tr>
+<tr><td>DRILL-002 logs-disk-full</td><td>util01's log volume full</td><td>The first run was invalid (2 MB left free). Real runs lost messages: util01 accepts over TCP first, then drops on ENOSPC by design. Queues did not help.</td><td>Space guard below 85% (prevents the slow, realistic fill)</td></tr>
+<tr><td>DRILL-003 package-rollback</td><td>"The last update broke a tool on the canary"</td><td>rsync downgraded in 4 s, host healthy, patched forward. tmux could not be used: RHEL 10 has only one version of it.</td><td>None: the runbook works</td></tr>
+<tr><td>DRILL-004 restore</td><td>A user's file lost; util01's whole data volume lost</td><td>RPO 649 s, single file 1 s, full data 2 s; content, owners and labels correct</td><td>Runs on every resume</td></tr>
+</table>
+<p>Two smaller findings along the way: a backup was reported failed once under load, because tar returns 1 when a growing log changes while it is read (treated as a failure under <code>pipefail</code>; now a warning). And OpenSCAP reported "unowned files" on util01 because it reads <code>/etc/passwd</code>, not SSSD; the files belong to IPA users, so this is a documented exception.</p>

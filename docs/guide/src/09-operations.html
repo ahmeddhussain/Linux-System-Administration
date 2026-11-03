@@ -1,0 +1,115 @@
+<h1>9. Running the company day to day</h1>
+<p class="part-intro">The operations manual. The golden rule: change the data in Git, push, apply from control01, verify with the tests. Never change a server or IPA by hand except to rescue it, and then write the fix into code.</p>
+
+<h2>9.1 Starting and ending a working session</h2>
+<pre>cd ~/ahmed-infra
+eval "$(ssh-agent)"              # the bootstrap key is loaded into it by lab.sh
+scripts/lab.sh up                # about an hour; expect 160 passed, 0 failed
+scripts/vpn-client.sh refresh    # gw01 has a new public IP after every rebuild (needs sudo)
+scripts/vpn-client.sh connect
+ssh control01-vpn                # your admin entry; break-glass: ssh control01</pre>
+<p>At the end of a session:</p>
+<pre>git status                       # everything committed and pushed?
+terraform -chdir=terraform plan -destroy     # review: only the lab layer (169 resources)
+scripts/lab.sh down              # backs up util01 to S3, then destroys the lab</pre>
+<div class="box warn"><div class="box-title">Never interrupt an apply and then destroy</div>
+If <code>up</code> is stopped while Terraform is still creating resources, AWS may finish creating something Terraform never recorded in its state (an orphan). The destroy then fails with <code>DependencyViolation</code>. Delete the orphan by its <code>Name</code> tag and destroy again. Better: let the apply finish, then destroy.</div>
+
+<h2>9.2 The change workflow (for every ticket)</h2>
+<ol>
+<li>Write the ticket: what, why, who asked. Record a decision in <code>Decisions.md</code> if it changes policy.</li>
+<li>Edit the data file on the laptop; commit; <b>push</b>.</li>
+<li>Apply from control01: <code>scripts/lab.sh resume</code> (everything, about 25 minutes), or on control01 a single playbook, for example <code>cd ~/ahmed-infra &amp;&amp; git pull &amp;&amp; cd ansible &amp;&amp; ansible-playbook playbooks/idm.yml</code>.</li>
+<li>Add or adjust checks in <code>scripts/test-lab.sh</code> for the new behaviour, including what must be refused.</li>
+<li><code>scripts/lab.sh verify</code> until everything passes. Close the ticket.</li>
+</ol>
+
+<h2>9.3 Add a user</h2>
+<ol>
+<li>Get the person's SSH public key; never their private key.</li>
+<li>In <code>ansible/inventory/group_vars/role_idm/identity.yml</code>, add an entry to <code>ipa_users</code> with the <b>next free ID</b> noted in the file, then update the note:
+<pre>  - name: nour
+    uid: 455400015            # next free ID; the private group gets the same number
+    first: Nour
+    last: Developer
+    groups: [dev]             # the team decides logins (HBAC), sudo and web policy
+    sshpubkey:
+      - ssh-ed25519 AAAA... nour@laptop
+    # home_quota: { soft: 2g, hard: 3g }      # optional, otherwise the default
+    # principalexpiration: "2027-03-31Z"     # for temporary staff</pre></li>
+<li>If the user needs the VPN, add a peer in <code>role_gateway/main.yml</code> (their WireGuard public key, team, next free address in the team's range).</li>
+<li>Commit, push, apply (<code>resume</code>, or <code>idm.yml</code> then <code>site.yml</code> for the home directory and proxy rules).</li>
+<li>What happens automatically:
+<ul>
+<li>The IPA account is created with the fixed UID.</li>
+<li>Group membership, and through it HBAC, sudo and web policy.</li>
+<li>The home is created on util01 with its quota.</li>
+<li>The automount entry covers it (key <code>*</code>).</li>
+<li>If the team is an allow-list team, the per-user nftables rule includes the new UID.</li>
+</ul></li>
+<li>Test: on control01, <code>ssh -i &lt;key&gt; nour@10.0.2.10</code>, then <code>id</code>, <code>pwd</code> (should be <code>/users/nour</code> on NFS) and <code>sudo -l</code>. Add checks to <code>test-lab.sh</code> (login allowed and denied, sudo, web).</li>
+</ol>
+
+<h2>9.4 Change a user</h2>
+<table>
+<tr><th>Request</th><th>Change</th></tr>
+<tr><td>Move to another team</td><td>Change <code>groups</code>. HBAC, sudo, proxy port and nftables follow. SSSD caches are reset automatically when the identity data changes.</td></tr>
+<tr><td>New or lost SSH key</td><td>Replace the key in <code>sshpubkey</code>. The old key stops working as soon as SSSD refreshes it.</td></tr>
+<tr><td>More disk space</td><td><code>home_quota</code> on the user, or the default in <code>role_util/storage.yml</code>. Limits are only set when they differ.</td></tr>
+<tr><td>Temporary access</td><td><code>principalexpiration</code></td></tr>
+</table>
+
+<h2>9.5 Remove a user (offboarding)</h2>
+<div class="box warn"><div class="box-title">Know this before your first offboarding ticket</div>
+The identity role only ever uses <code>state: present</code>. Deleting a user from <code>identity.yml</code> removes them <b>at the next rebuild</b> (IPA is rebuilt from the file), but <b>not</b> from a running IPA. For same-day offboarding, the code needs a "disabled or absent users" list handled by the role (<code>ipauser</code> with <code>state: disabled</code> or <code>absent</code>). That is a good first ticket. Until then, the emergency step is <code>ipa user-disable &lt;name&gt;</code> on idm01, followed by the code change.</div>
+<p>Also: remove the person's VPN peer from <code>role_gateway/main.yml</code>, and decide what happens to their home on util01 (archive it in the backup, then remove it).</p>
+
+<h2>9.6 Add a team</h2>
+<p>Follow the checklist in <code>docs/architecture/org-structure.md</code>:</p>
+<ol>
+<li>In <code>identity.yml</code>: the group (next free GID), its users, a host group, an HBAC rule and a sudo rule (or none).</li>
+<li>In Terraform: a workstation in <code>hosts</code> (a free IP inside the subnet's <code>10.0.x.8/29</code>), a VPN range, and the team's workstation security group in <code>team_workstation_sg</code>. Plan, review, apply.</li>
+<li>In <code>role_gateway/main.yml</code>: the team's <code>vpn_team_policy</code> and peers.</li>
+<li>In <code>all.yml</code>: the team's web policy if it is allow-list, and a team share in <code>storage.yml</code>.</li>
+<li>Run <code>site.yml</code>, add tests, verify, record the decision.</li>
+</ol>
+
+<h2>9.7 Other common tickets</h2>
+<table>
+<tr><th>Ticket</th><th>Where</th></tr>
+<tr><td>Block or allow a website</td><td><code>role_util/web_policy.yml</code> (a leading dot matches every subdomain); rerun site.yml</td></tr>
+<tr><td>Open a network connection</td><td>one entry in <code>terraform/network-policy.tf</code>; plan shows exactly the two new rules; apply</td></tr>
+<tr><td>New VPN device</td><td>a peer in <code>role_gateway/main.yml</code>; the client generates its key pair (<code>docs/runbooks/vpn-client.md</code>)</td></tr>
+<tr><td>Grow storage</td><td>a size in <code>util_storage_volumes</code>, or a new EBS volume in util01's <code>extra_volumes</code> plus <code>util_storage_disk_count</code> (<code>docs/runbooks/storage.md</code>)</td></tr>
+<tr><td>Restore a user's file</td><td>on util01: <code>aws s3 cp s3://&lt;bucket&gt;/util01/latest.tar.gz - | tar -xz -C / export/home/&lt;user&gt;/&lt;file&gt;</code> (owners come back by name); older versions through S3 versioning</td></tr>
+<tr><td>Patch</td><td><code>scripts/lab.sh patch</code> (or <code>--security</code>); read <code>/var/log/ahmed-patch.log</code>; rollback in <code>docs/runbooks/patching.md</code></td></tr>
+<tr><td>Review compliance</td><td><code>scripts/lab.sh compliance</code>, then <code>summary.txt</code> on util01; a new failed rule is fixed in a role or documented as an exception, never ignored</td></tr>
+<tr><td>Review audit</td><td>as laila on util01: <code>sudo ausearch -if ...</code> (section 8.1) and the daily report</td></tr>
+<tr><td>Rehearse an incident</td><td><code>scripts/lab.sh drill idm-outage</code> (or <code>logs-disk-full</code>, <code>package-rollback</code>, <code>restore</code>)</td></tr>
+</table>
+
+<h2>9.8 Troubleshooting checklist</h2>
+<table>
+<tr><th>Symptom</th><th>First checks</th></tr>
+<tr><td>VPN does not connect</td><td><code>vpn-client.sh status</code>; <code>sudo wg show ahmed</code> (no "latest handshake" means nothing came back); <code>timeout 5 bash -c '&lt;/dev/tcp/&lt;gw01&gt;/443'</code>; did you <code>refresh</code> after the rebuild? Fall back to <code>ssh control01</code>.</td></tr>
+<tr><td>A user cannot log in</td><td>Is their key in identity.yml? <code>id user</code> on the host (SSSD); <code>sssctl domain-status ahmed.internal -o</code>; is there an HBAC rule for the host? <code>journalctl -u sshd</code> or <code>/var/log/secure</code> centrally on util01.</td></tr>
+<tr><td>sudo rules missing</td><td><code>sudo -l -U user</code> on the host; the identity checksum should have reset SSSD's cache; restart SSSD if it is offline.</td></tr>
+<tr><td>Home directory missing</td><td><code>systemctl status autofs</code>; <code>automount -m</code> (maps from IPA); <code>exportfs -s</code> on util01; NFS security group and firewall.</td></tr>
+<tr><td>Website refused</td><td>Which proxy port does the user's shell use (<code>echo $https_proxy</code>)? The deny or allow list; Squid's access log on util01.</td></tr>
+<tr><td>Ansible run hangs</td><td>Look at <code>~/run-site.log</code> and <code>~/ansible.log</code> on control01. Never interrupt dnf. A task over 30 minutes fails on its own.</td></tr>
+<tr><td>Logs missing on util01</td><td>Sender: <code>ipa-getcert list -i rsyslog</code> (MONITORING), <code>rsyslogd -N1</code>. util01: <code>df -h /srv/logs</code>; the space guard's messages (<code>ahmed-logspace</code>).</td></tr>
+<tr><td>IPA down</td><td>On idm01: <code>ipactl status</code>, <code>ipactl start</code>. Names of idm01 and util01 still resolve (pinned), and cached users keep working.</td></tr>
+</table>
+
+<h2>9.9 Where everything lives (quick reference)</h2>
+<table>
+<tr><th>To change...</th><th>Edit</th></tr>
+<tr><td>Users, groups, HBAC, sudo, IDs, automount</td><td><code>ansible/inventory/group_vars/role_idm/identity.yml</code></td></tr>
+<tr><td>VPN peers and per-team VPN policy</td><td><code>ansible/inventory/group_vars/role_gateway/main.yml</code></td></tr>
+<tr><td>Website lists</td><td><code>ansible/inventory/group_vars/role_util/web_policy.yml</code></td></tr>
+<tr><td>Team to web policy, compliance minimums and exceptions</td><td><code>ansible/inventory/group_vars/all.yml</code></td></tr>
+<tr><td>Quotas, team shares</td><td><code>ansible/inventory/group_vars/role_util/storage.yml</code></td></tr>
+<tr><td>Hosts, sizes, disks, IPs</td><td><code>terraform/variables.tf</code> (<code>hosts</code>)</td></tr>
+<tr><td>Network connections</td><td><code>terraform/network-policy.tf</code></td></tr>
+<tr><td>Secrets</td><td><code>ansible-vault edit &lt;file&gt;</code> on control01 only; never paste a secret anywhere</td></tr>
+</table>

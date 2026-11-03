@@ -1,0 +1,95 @@
+<h1>6. The scripts</h1>
+
+<h2>6.1 <code>scripts/lab.sh</code>: the lab's front door</h2>
+<p>Everything starts on the laptop with <code>lab.sh</code>. It is a thin entry point over three libraries in <code>scripts/lib/</code> (D-032, D-041):</p>
+<table>
+<tr><th>Command</th><th>What it does</th></tr>
+<tr><td><code>up [-y]</code></td><td>Terraform apply (lab layer), then everything <code>resume</code> does. About an hour from nothing. <code>-y</code> approves the plan automatically.</td></tr>
+<tr><td><code>resume</code></td><td>On existing infrastructure: load the bootstrap key into the SSH agent; write the SSH config; wait for control01; prepare control01; bootstrap the ansible account; run <code>site.yml</code> detached and poll it; reboot control01 if patching needs it; run the compliance scan and the restore drill; run the tests; refresh the VPN client</td></tr>
+<tr><td><code>verify [--full]</code></td><td>The tests only; <code>--full</code> adds a full <code>site.yml</code> run that must change nothing</td></tr>
+<tr><td><code>compliance</code></td><td>Pull on control01, run the CIS scan, publish the results</td></tr>
+<tr><td><code>patch [--security]</code></td><td>The patch cycle in rings, then the tests</td></tr>
+<tr><td><code>drill &lt;name&gt;</code></td><td><code>restore</code>, <code>idm-outage</code>, <code>logs-disk-full</code> or <code>package-rollback</code></td></tr>
+<tr><td><code>status</code></td><td>Show the instances</td></tr>
+<tr><td><code>down [-y]</code></td><td>Disconnect the VPN, back up util01 to S3 (it asks before destroying if the backup fails), then <code>terraform destroy</code> of the lab layer only</td></tr>
+</table>
+
+<h3>The libraries</h3>
+<ul>
+<li><b><code>lib/common.sh</code></b>: paths, region, the key (<code>~/.ssh/ivolve.pem</code>, overridable with <code>LAB_SSH_KEY</code>), <code>log</code>/<code>warn</code>/<code>die</code>, a tool check, and a lookup of a host's instance ID by its Name tag.</li>
+<li><b><code>lib/infra.sh</code></b>: <code>infra_apply</code> (init and apply), <code>infra_destroy</code> (backup first, then destroy), <code>infra_status</code>.</li>
+<li><b><code>lib/control01.sh</code></b>: writes <code>~/.ssh/ahmed-lab.conf</code> with two entries, then waits, prepares and reboots control01 as needed.
+<ul>
+<li><code>control01</code> goes through Instance Connect (<code>aws ec2-instance-connect open-tunnel</code>) and always works: it is the break-glass path.</li>
+<li><code>control01-vpn</code> goes to 10.0.1.10 over the VPN, with the host key stored under the instance ID.</li>
+</ul></li>
+<li><b><code>lib/configure.sh</code></b>: <code>run_on_control01</code>, plus <code>configure_hosts</code>, <code>run_compliance</code>, <code>run_patch_cycle</code>, <code>run_drill</code> and <code>run_tests</code>.
+<ul>
+<li><code>run_on_control01</code> is the key helper. It starts a long command <b>detached</b> on control01 (<code>setsid nohup</code>, output to <code>~/run-&lt;name&gt;.log</code>, exit code to <code>~/run-&lt;name&gt;.rc</code>), then follows it with short SSH calls every 20 seconds, printing new <code>PLAY</code> and <code>TASK</code> lines. A long SSH session through the Instance Connect tunnel had stalled before (INC-002), so long jobs never depend on one connection staying up.</li>
+</ul></li>
+</ul>
+<div class="box"><div class="box-title">Why the login banner repeats during <code>up</code></div>
+Every poll is a new SSH connection, and sshd prints the company banner to each one. It is cosmetic: the job is running on control01 regardless.</div>
+
+<h2>6.2 <code>scripts/control01-setup.sh</code></h2>
+<p>Piped to control01 over SSH, safe to rerun:</p>
+<ol>
+<li>Installs git and Python, with retries, because the repositories can take a minute after first boot.</li>
+<li>Clones the repository, or pulls it with <code>--ff-only</code>.</li>
+<li>Creates the venv and installs the pinned <code>requirements.txt</code> and collections.</li>
+<li>Generates the <code>ansible_ed25519</code> key if missing, and activates the venv in <code>.bashrc</code>.</li>
+</ol>
+<p>Everything is inside a function that runs with stdin closed, so no command can swallow the rest of the piped script.</p>
+
+<h2>6.3 <code>scripts/vpn-client.sh</code> (laptop)</h2>
+<table>
+<tr><th>Command</th><th>Effect</th></tr>
+<tr><td><code>refresh</code></td><td>Fetches the gateway's public key and the current public IP, and writes <code>/etc/wireguard/ahmed.conf</code>. Run after every rebuild, because the Elastic IP is new each time.</td></tr>
+<tr><td><code>connect</code></td><td>Starts wstunnel as a user systemd unit (<code>ahmed-wstunnel</code>) towards <code>wss://&lt;gw01&gt;:443</code>, brings up WireGuard (MTU 1280, route for 10.0.0.0/16 only: a split tunnel), and pings control01</td></tr>
+<tr><td><code>disconnect</code>, <code>status</code></td><td>Stops both, or shows the state</td></tr>
+</table>
+<p>It needs sudo for <code>/etc/wireguard</code>. During a long <code>up</code> the sudo prompt times out, so run <code>refresh</code> by hand afterwards.</p>
+
+<h2>6.4 <code>scripts/test-lab.sh</code>: 160 checks</h2>
+<p>Copied to control01 and run there by <code>lab.sh verify</code>. Helpers:</p>
+<ul>
+<li><code>check</code>: a command must succeed.</li>
+<li><code>reach</code>: a TCP port from one host to another must be open or blocked.</li>
+<li><code>as_user</code>/<code>as_check</code>: log in as a real IPA user with their key and run something.</li>
+<li><code>login</code> and <code>sudo_as</code>: a login or a sudo must be allowed or denied.</li>
+<li><code>web</code>: the proxy's answer for a user and URL: 200 allowed, 403 denied by policy, 000 refused by nftables.</li>
+<li>VPN test peers, one per team, in network namespaces on control01, carried through wstunnel to gw01 like a real client (D-055).</li>
+</ul>
+<p>The users' private test keys are decrypted from the vault into <code>/dev/shm</code> (memory only) and removed on exit. Sections:</p>
+<div class="cols"><ul>
+<li>Inventory and access</li><li>Network policy (default deny, including "must be blocked")</li><li>Baseline configuration (SELinux, firewall, SSH, banners; key-only proven)</li><li>Patch level and patch records</li><li>VPN gateway</li><li>util01 data volume and backups</li><li>Time and identity (FreeIPA, SSSD, IDs, SSHFP, no allow_all, pinned names)</li><li>Logins and sudo per team</li><li>Central logs over TLS, log space guard</li><li>Audit records</li><li>Hardening: crypto policy, AIDE</li><li>OpenSCAP compliance</li><li>Restore drill</li><li>NFS homes</li><li>Storage, quotas, team shares</li><li>Web access per user</li><li>Per-team VPN policy</li><li>Idempotency (with <code>--full</code>)</li>
+</ul></div>
+<p>A test tests denial as much as access: "contractor1 login on util01 is denied", "ahmed cannot delete sara's file in the company share", "WireGuard UDP port is closed to the outside". Default-deny designs usually fail exactly there (D-035).</p>
+
+<h2>6.5 Small helpers</h2>
+<ul>
+<li><b><code>ansible/scripts/vault-password.py</code></b>: Ansible's <code>vault_password_file</code>. It reads the SSM parameter with control01's instance role (boto3) and prints it; on error it says what failed, never the value.</li>
+<li><b>Scripts on util01</b>, installed by roles:
+<ul>
+<li><code>ahmed-backup</code>: backup, restore, verify and drill (6.6).</li>
+<li><code>ahmed-audit-report</code>: today's audit summary per host.</li>
+<li><code>ahmed-logspace</code>: the space guard.</li>
+</ul></li>
+</ul>
+
+<h2>6.6 <code>ahmed-backup</code> (util01)</h2>
+<table>
+<tr><th>Mode</th><th>What it does</th></tr>
+<tr><td><code>backup</code></td><td><code>tar</code> of homes, team shares and logs (with ACLs, extended attributes and SELinux labels; NFS silly-rename files <code>.nfs*</code> excluded), streamed by <code>aws s3 cp -</code> into <code>s3://ahmed-infra-backups-&lt;account&gt;/util01/latest.tar.gz</code>. A tar exit code of 1 ("a file changed while being read", which growing logs cause) is a warning; 2 is a failure.</td></tr>
+<tr><td><code>restore</code></td><td>Streams the latest backup back and extracts it onto <code>/</code>. Used on a new volume.</td></tr>
+<tr><td><code>verify</code></td><td>Downloads and lists the whole archive</td></tr>
+<tr><td><code>drill</code></td><td>The restore drill:
+<ol>
+<li>Measures the RPO (time since the data was last safe).</li>
+<li>Plants a marker file in ahmed's home and takes a real, timed backup.</li>
+<li>Deletes the marker and restores just that file. Content, owner by name and SELinux label are checked.</li>
+<li>Restores everything into <code>/var/tmp/restore-drill</code> and compares homes and team shares with live (full RTO).</li>
+<li>Writes PASS or FAIL against targets of RPO 24 h, single file 5 min, all data 15 min.</li>
+</ol></td></tr>
+</table>
+<p>Owners are stored and restored <b>by name</b>. After an IPA reinstall the numbers could differ, and names map files back to the right people (D-056 as built, D-060).</p>

@@ -1,0 +1,92 @@
+<h1>10. Every decision, D-001 to D-069</h1>
+<p class="part-intro">The full text, with every alternative, is in <code>Decisions.md</code>. Here each decision is reduced to what was chosen and the one reason that matters. "Superseded" means a later decision replaced it; the history is kept on purpose, because how a design evolved is part of the story.</p>
+
+<h2>10.1 Foundations (D-001 to D-022)</h2>
+<table>
+<tr><th>#</th><th>Decision</th><th>Chosen</th><th>Main reason</th></tr>
+<tr><td>001</td><td>Distribution</td><td>RHEL 10</td><td>The platform of the Red Hat lab and most enterprises (dnf, SELinux, IdM); Rocky 10 is the fallback</td></tr>
+<tr><td>002</td><td>Scale</td><td>5 hosts, app01 later (6 with gw01)</td><td>The company layer is the core; a finished smaller project beats an unfinished large one</td></tr>
+<tr><td>003</td><td>Tool split</td><td>Terraform builds, Ansible configures</td><td>Industry defaults; state for infrastructure, agentless SSH for configuration</td></tr>
+<tr><td>004</td><td>Bootstrap SSH key</td><td>Import the public half of an existing key</td><td>The private key never enters Terraform; replaced by per-user keys in IPA</td></tr>
+<tr><td>005</td><td>Instance sizing</td><td>superseded by D-025 and D-037</td><td>-</td></tr>
+<tr><td>006</td><td>Identity</td><td>FreeIPA</td><td>Bundles LDAP, Kerberos, DNS, sudo and HBAC; the Linux equivalent of Active Directory</td></tr>
+<tr><td>007</td><td>control01 and idm01 separate</td><td>Separate hosts</td><td>The control plane must be admin-only; IPA must be reachable by every host</td></tr>
+<tr><td>008</td><td>Web filtering</td><td>Squid with per-team rules</td><td>Per-team policy and central logs; HTTPS filtered by domain only (no TLS interception)</td></tr>
+<tr><td>009</td><td>Endpoint configuration</td><td>Ansible roles by host group</td><td>Agentless, same inventory; Satellite is heavy and licensed</td></tr>
+<tr><td>010</td><td>Access model</td><td>Named admin accounts, no root SSH, control01 admin-only</td><td>Every action tied to a person</td></tr>
+<tr><td>011</td><td>Region</td><td>us-east-1</td><td>Widest availability, lowest prices</td></tr>
+<tr><td>012</td><td>Single public subnet</td><td>superseded by D-017</td><td>-</td></tr>
+<tr><td>013</td><td>Local Terraform state</td><td>superseded by D-016</td><td>-</td></tr>
+<tr><td>014</td><td>Terraform structure</td><td>Local modules (network, security-groups, ec2-instance), one root</td><td>One responsibility per module; adding a host or team is one line</td></tr>
+<tr><td>015</td><td>Security groups per role</td><td>One per role, separate rule resources</td><td>New hosts join a role group; no circular references</td></tr>
+<tr><td>016</td><td>Terraform state</td><td>S3 with native locking (<code>use_lockfile</code>)</td><td>Recoverable and shareable; no DynamoDB table (completed by D-044)</td></tr>
+<tr><td>017</td><td>Network</td><td>Tiered private subnets behind a NAT gateway</td><td>No server or workstation has a public address; per-tier policy</td></tr>
+<tr><td>018</td><td>Bastion host</td><td>superseded by D-020, D-023</td><td>-</td></tr>
+<tr><td>019</td><td>Default deny</td><td>Groups generated from a flows map; both halves declared; default group emptied</td><td>Every opened path is a reviewable one-line change</td></tr>
+<tr><td>020</td><td>Entry point as a "gateway" role</td><td>gw01 named for its function</td><td>The upgrade to a VPN needed no security group redesign</td></tr>
+<tr><td>021</td><td>OS image</td><td>Looked up by name; AMI changes ignored after creation</td><td>Survives image retirement; servers are patched in place, not replaced</td></tr>
+<tr><td>022</td><td>Host inventory and instance hardening</td><td>One hosts map, static IPs, FQDNs by cloud-init, IMDSv2, encrypted gp3</td><td>FreeIPA needs stable names and addresses; baseline security at no cost</td></tr>
+</table>
+
+<h2>10.2 Access, automation and lifecycle (D-023 to D-045)</h2>
+<table>
+<tr><th>#</th><th>Decision</th><th>Chosen</th><th>Main reason</th></tr>
+<tr><td>023</td><td>Remote access</td><td>WireGuard VPN on gw01</td><td>How staff really reach private networks; one key and one IP per user</td></tr>
+<tr><td>024</td><td>VPN routing</td><td>Routed without NAT; a range per team; split tunnel</td><td>Hosts and logs see the real user address, enabling per-team rules and auditing</td></tr>
+<tr><td>025</td><td>Instance types and the account plan</td><td>idm01 on c7i-flex.large (4 GB)</td><td>Free-plan eligible and enough memory for FreeIPA</td></tr>
+<tr><td>026</td><td>Bootstrap and break-glass</td><td>EC2 Instance Connect Endpoint to control01</td><td>control01 stays private; entry authenticated by AWS credentials</td></tr>
+<tr><td>027</td><td>Automation account</td><td>Local <code>ansible</code> user, key-only, passwordless sudo</td><td>Accountable identity separate from humans; works before and without IPA</td></tr>
+<tr><td>028</td><td>Where Ansible runs</td><td>control01, code pulled from Git</td><td>Git is the source of truth; one place applies changes</td></tr>
+<tr><td>029</td><td>Inventory</td><td>AWS dynamic inventory grouped by tags</td><td>Cannot drift; new hosts appear in the right groups</td></tr>
+<tr><td>030</td><td>Ansible runtime</td><td>venv with pinned versions</td><td>Reproducible; the packaged ansible-core is too old</td></tr>
+<tr><td>031</td><td>Baseline</td><td>base role: time, SELinux enforcing, firewalld, SSH drop-in validated with sshd -t</td><td>Independent layers behind the security groups; no self-inflicted lockouts</td></tr>
+<tr><td>032</td><td>Lab lifecycle</td><td>lab.sh; destroyed between sessions</td><td>Repeatable rebuilds; no idle costs; anything not in code is lost</td></tr>
+<tr><td>033</td><td>WireGuard role</td><td>Repository limited to wireguard-tools over HTTPS; peers as data</td><td>Works with default-deny egress; minimal third-party surface</td></tr>
+<tr><td>034</td><td>Patch baseline</td><td>Fleet-wide update before configuration; reboot only when needed</td><td>The 10.0 image vs 10.2 repositories caused drift and a broken systemctl</td></tr>
+<tr><td>035</td><td>Verification</td><td>test-lab.sh in Git, including "must be blocked" checks</td><td>Repeatable; tests denial, where default-deny designs fail</td></tr>
+<tr><td>036</td><td>SSH host identity</td><td>Host key stored under the instance ID</td><td>Replaced servers reuse IPs, never instance IDs</td></tr>
+<tr><td>037</td><td>Control node sizing, patch batching</td><td>control01 and gw01 on t3.small; two hosts at a time</td><td>A 1 GB control node ran out of memory while patching and broke SSH</td></tr>
+<tr><td>038</td><td>VPN firewall zone</td><td>Permanent binding (superseded by D-052)</td><td>Runtime firewall state is wiped by any reload</td></tr>
+<tr><td>039</td><td>VPN endpoint open to any address</td><td>Any source</td><td>Staff connect from anywhere; WireGuard silently drops unknown senders</td></tr>
+<tr><td>040</td><td>VPN transport</td><td>WireGuard inside TLS on TCP 443 (wstunnel)</td><td>WireGuard UDP was dropped on the admin's network (INC-001)</td></tr>
+<tr><td>041</td><td>Script structure</td><td>lab.sh over lib/; separate vpn-client.sh</td><td>One job per file; a rebuild ends ready to connect</td></tr>
+<tr><td>042</td><td>Persistent Terraform layer</td><td>Separate state; prevent_destroy</td><td>The boundary is structural, not a remembered <code>-target</code> flag</td></tr>
+<tr><td>043</td><td>Vault password</td><td>SSM SecureString, written write-only, read by control01's role</td><td>Survives rebuilds; no copy in Git, state or disk</td></tr>
+<tr><td>044</td><td>State bucket</td><td>Adopted with import; versioned; TLS-only</td><td>The one piece not in code; an overwritten state was unrecoverable</td></tr>
+<tr><td>045</td><td>Terraform tests</td><td>Native tests with mocked providers</td><td>Free, fast, no credentials; test the rules the design depends on</td></tr>
+</table>
+
+<h2>10.3 Identity, VPN policy and util01 (D-046 to D-061)</h2>
+<table>
+<tr><th>#</th><th>Decision</th><th>Chosen</th><th>Main reason</th></tr>
+<tr><td>046</td><td>IPA shape</td><td>Realm AHMED.INTERNAL, integrated CA, one server</td><td>Matches existing names; the CA issues certificates; a replica costs another 4 GB host</td></tr>
+<tr><td>047</td><td>DNS</td><td>IPA integrated DNS forwarding to the VPC resolver</td><td>Automatic records and SSHFP; tradeoff: resolution depends on idm01 (see D-068)</td></tr>
+<tr><td>048</td><td>IPA lifecycle</td><td>Rebuilt from code every session; identity is data</td><td>Same rule as the rest of the lab; adding a team is a data change</td></tr>
+<tr><td>049</td><td>IPA secrets</td><td>Ansible Vault; clients use one-time passwords</td><td>Unattended; clients never see the admin password</td></tr>
+<tr><td>050</td><td>IPA automation</td><td>freeipa.ansible_freeipa collection, pinned</td><td>Idempotent and data-driven</td></tr>
+<tr><td>051</td><td>IPA network access</td><td>IPA ports from the VPC CIDR, egress to idm01's /32; all six hosts enrolled</td><td>Honest boundary without ~72 rules; named, audited admin logins on gw01</td></tr>
+<tr><td>052</td><td>Per-team VPN policy</td><td>firewalld zone and policy per team on gw01, plus per-team workstation groups</td><td>Two independent layers; whole-file templates remove rules reliably</td></tr>
+<tr><td>053</td><td>Ops to servers</td><td>Ops range may SSH to idm01 and util01</td><td>No jump host; logs show the person's own address</td></tr>
+<tr><td>054</td><td>gw01 itself</td><td>SSH from the admin VPN range only</td><td>The edge host is admin-only</td></tr>
+<tr><td>055</td><td>VPN tests</td><td>One synthetic peer per team in network namespaces on control01</td><td>Proves each team's paths with real traffic through the real transport</td></tr>
+<tr><td>056</td><td>util01 data</td><td>LVM data volume; tar + awscli2 backups to versioned S3; restored on up</td><td>Every session is a real restore; no third-party backup tool</td></tr>
+<tr><td>057</td><td>Web access</td><td>No direct internet; Squid ports per policy; per-user nftables by UID</td><td>The proxy is unavoidable even for root; the policy follows the user, not the machine</td></tr>
+<tr><td>058</td><td>NFS homes</td><td>NFSv4, sec=sys, workstations only, IPA automount at /users</td><td>Works with key-only logins; /home would hide the local accounts</td></tr>
+<tr><td>059</td><td>Central logs</td><td>rsyslog over TLS with IPA certificates, per host by reverse DNS</td><td>Logs carry authentication records; no new PKI; no spoofed directories</td></tr>
+<tr><td>060</td><td>Stable IDs</td><td>Fixed IPA range and explicit UID/GID</td><td>A rebuilt IPA must give everyone the same numbers (NFS, backups)</td></tr>
+<tr><td>061</td><td>Storage</td><td>Data only on util01; second disk; user and team quotas; team shares with default ACLs</td><td>One copy of every file, backed up; workstations disposable</td></tr>
+</table>
+
+<h2>10.4 Roadmap 5 (D-062 to D-069)</h2>
+<table>
+<tr><th>#</th><th>Decision</th><th>Chosen</th><th>Main reason</th></tr>
+<tr><td>062</td><td>Fixed host IPs</td><td>Explicit subnet CIDR reservation 10.0.x.8/29</td><td>The Instance Connect Endpoint took control01's IP (INC-006); covers future interfaces too</td></tr>
+<tr><td>063</td><td>Audit</td><td>Own keyed rules; records to util01 through the syslog plugin</td><td>Explainable, cheap; reuses TLS logging; audisp-remote needs Kerberos and a new port</td></tr>
+<tr><td>064</td><td>Compliance</td><td>OpenSCAP CIS Level 1; fixes in our roles; exceptions documented; minimum score only rises</td><td>The commercial baseline; generated remediation would fight our roles</td></tr>
+<tr><td>065</td><td>Patching</td><td>Monthly cycle in rings with gates; urgent security cycle</td><td>Limits the blast radius; identity patched last</td></tr>
+<tr><td>066</td><td>Restore drills</td><td>Scripted, measured RPO/RTO against targets, every resume</td><td>A backup is only proven by a restore</td></tr>
+<tr><td>067</td><td>Incident drills</td><td>Three scripted drills with reports</td><td>Repeatable; each checks a promise the design makes</td></tr>
+<tr><td>068</td><td>Pinned names</td><td>idm01 and util01 in /etc/hosts (chosen by Ahmed)</td><td>DRILL-001: IPA's DNS was a single point of failure for proxy, NFS and logs</td></tr>
+<tr><td>069</td><td>IPA admin access</td><td>admin keeps login access to every host, keys only (chosen by Ahmed)</td><td>The identity of last resort; passwords are off since INC-007</td></tr>
+</table>
+<p>D-065, D-066 and D-067 were proposed on Ahmed's delegation and then approved by him.</p>

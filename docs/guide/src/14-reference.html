@@ -1,0 +1,84 @@
+<h1>14. Reference</h1>
+
+<h2>14.1 Command cheat sheet</h2>
+<h3>Laptop</h3>
+<pre>scripts/lab.sh up | resume | verify [--full] | compliance | patch [--security] | drill &lt;name&gt; | status | down
+scripts/vpn-client.sh refresh | connect | status | disconnect
+ssh control01-vpn        # admin entry over the VPN
+ssh control01            # break-glass through AWS Instance Connect
+terraform -chdir=terraform plan          # review before every apply
+terraform -chdir=terraform plan -destroy # review before every teardown
+terraform -chdir=terraform test          # mocked tests, no AWS needed</pre>
+<h3>control01</h3>
+<pre>cd ~/ahmed-infra &amp;&amp; git pull &amp;&amp; cd ansible
+ansible-playbook playbooks/site.yml                  # everything
+ansible-playbook playbooks/idm.yml                   # FreeIPA and identity data only
+ansible-playbook playbooks/site.yml --limit util01   # one host
+ansible all -m ping                                  # who is reachable
+ansible-inventory --graph                            # groups from the AWS tags
+ansible-vault view inventory/group_vars/role_idm/vault.yml   # secrets: never paste anywhere
+tail -f ~/run-site.log ; less ~/ansible.log           # what lab.sh started</pre>
+<h3>Any IPA client</h3>
+<pre>id sara                                   # SSSD resolves an IPA user
+sudo -l -U sara                           # sudo rules SSSD applies here
+sssctl domain-status ahmed.internal -o    # online or offline
+sshd -T | grep -E 'authentication|permit' # effective SSH settings
+ipa-getcert list                          # certmonger certificates
+update-crypto-policies --show
+auditctl -l ; ausearch -k privileged -i --start today
+firewall-cmd --list-all ; getenforce</pre>
+<h3>idm01</h3>
+<pre>ipactl status
+kinit admin    # (password from the vault)  then:  ipa user-show sara ; ipa hbacrule-find ; ipa sudorule-find</pre>
+<h3>util01</h3>
+<pre>lvs vg_data ; df -h /export/home /export/teams /srv/logs
+xfs_quota -x -c 'report -u -h' /export/home ; xfs_quota -x -c 'report -p -h' /export/teams
+exportfs -s ; squid -k check
+ls /srv/logs/ ; cat /srv/logs/reports/openscap/summary.txt
+/usr/local/sbin/ahmed-backup verify | drill
+tail /srv/logs/reports/drills/*.log</pre>
+<h3>gw01</h3>
+<pre>wg show wg0 ; systemctl status wstunnel
+firewall-cmd --get-active-zones ; firewall-cmd --get-active-policies</pre>
+
+<h2>14.2 Repository map</h2>
+<table>
+<tr><th>Path</th><th>Contents</th></tr>
+<tr><td><code>README.md</code></td><td>Overview for visitors</td></tr>
+<tr><td><code>CLAUDE.md</code>, <code>PROJECT_HANDOFF.md</code></td><td>Working rules, and the project's memory (state, lessons, how to continue)</td></tr>
+<tr><td><code>Decisions.md</code></td><td>D-001 to D-069, each with alternatives and reasons</td></tr>
+<tr><td><code>terraform/</code>, <code>terraform/persistent/</code>, <code>terraform/bootstrap/</code></td><td>The three layers (chapter 4)</td></tr>
+<tr><td><code>ansible/playbooks/</code>, <code>ansible/roles/</code></td><td>Playbooks and roles (chapter 5)</td></tr>
+<tr><td><code>ansible/inventory/</code></td><td>Dynamic inventory and the data files</td></tr>
+<tr><td><code>scripts/</code></td><td>lab.sh and its libraries, vpn-client.sh, test-lab.sh, control01-setup.sh (chapter 6)</td></tr>
+<tr><td><code>docs/architecture/</code></td><td>org-structure (teams, access, checklists, security operations), FreeIPA options</td></tr>
+<tr><td><code>docs/runbooks/</code></td><td>vpn-client, freeipa, storage, patching</td></tr>
+<tr><td><code>docs/incident-reports/</code>, <code>docs/drills/</code></td><td>INC-001 to INC-007, DRILL-001 to DRILL-004</td></tr>
+<tr><td><code>docs/guide/</code></td><td>This guide: the HTML source in <code>src/</code>, rebuilt with <code>python3 docs/guide/build.py</code></td></tr>
+</table>
+
+<h2>14.3 Glossary</h2>
+<table>
+<tr><th>Term</th><th>Meaning</th></tr>
+<tr><td>Break-glass</td><td>An emergency access path that does not depend on the normal one (here: Instance Connect when the VPN fails)</td></tr>
+<tr><td>CIDR</td><td>An address range written as address/prefix, for example 10.0.1.0/24 (256 addresses)</td></tr>
+<tr><td>Canary</td><td>The first, least critical host to receive a change</td></tr>
+<tr><td>Default deny</td><td>Everything is blocked unless explicitly allowed</td></tr>
+<tr><td>Drift</td><td>When a running system no longer matches its code</td></tr>
+<tr><td>Enrollment</td><td>Joining a host to FreeIPA</td></tr>
+<tr><td>FQDN</td><td>Fully qualified domain name, for example util01.ahmed.internal</td></tr>
+<tr><td>HBAC</td><td>Host-based access control: who may log in where (FreeIPA)</td></tr>
+<tr><td>Idempotent</td><td>Running again changes nothing when the state is already right</td></tr>
+<tr><td>Keytab</td><td>A file holding a host's or service's Kerberos keys</td></tr>
+<tr><td>OTP</td><td>One-time password; used here to enroll hosts</td></tr>
+<tr><td>PTR record</td><td>Reverse DNS: address to name</td></tr>
+<tr><td>RPO / RTO</td><td>Recovery point objective (data you could lose) / recovery time objective (time to recover)</td></tr>
+<tr><td>SSHFP</td><td>DNS records holding SSH host key fingerprints</td></tr>
+<tr><td>SSSD</td><td>The client daemon for FreeIPA identities, keys, access rules and caching</td></tr>
+<tr><td>Split tunnel</td><td>Only company traffic (10.0.0.0/16) goes through the VPN</td></tr>
+<tr><td>Tailoring</td><td>Local adjustments to a compliance profile (OpenSCAP)</td></tr>
+<tr><td>XCCDF / OVAL</td><td>The SCAP formats for checklists and results / for how each check is tested</td></tr>
+</table>
+
+<h2>14.4 What is next</h2>
+<p>The company's admin layer is complete. Remaining build work: <b>app01</b> (web and database tier at 10.0.3.10, which activates the dev and dba sudo rules) and, optionally, roadmap item 6 (an IPA replica, alerting, golden images, SSH certificates). Everything else is operations, by tickets, using chapter 9. Before the first ticket, run <code>scripts/lab.sh up</code> from nothing: it is the first full build with the hardening, audit and compliance roles, and it should end at 160/160.</p>

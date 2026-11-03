@@ -1,0 +1,58 @@
+<h1>1. The project in one chapter</h1>
+
+<h2>1.1 What this project is</h2>
+<p><b>ahmed-infra</b> is a complete, working IT environment for a fictional company called <b>ahmed</b>, built on Amazon Web Services (AWS). You play the company's Linux system administrator. The lab contains what a real Linux administrator owns in a company: central user accounts and passwords policy, who may log in where, who may use <code>sudo</code>, a VPN for remote staff, firewalls, an internet proxy that decides which websites each team may reach, file servers for home directories and team shares, central logging, security auditing, compliance scanning against an industry benchmark, a patching process, backups with tested restores, and rehearsed incident drills.</p>
+<p>Everything is <b>code</b>. The servers, networks and firewalls are described in <b>Terraform</b>; everything that happens inside the servers is described in <b>Ansible</b>. Nothing is configured by hand. To prove that, the whole lab is <b>destroyed after every working session and rebuilt from Git</b> at the start of the next one. If something was done by hand and not written into code, it disappears, so it is impossible to cheat.</p>
+
+<h2>1.2 The company</h2>
+<table>
+<tr><th>Team</th><th>Example user</th><th>Can log into</th><th>sudo</th><th>Internet</th></tr>
+<tr><td>admins</td><td>ahmed.admin</td><td>every host</td><td>everything</td><td>standard</td></tr>
+<tr><td>dev</td><td>ahmed</td><td>ws-dev01</td><td>none yet (app restart comes with app01)</td><td>standard: social media and streaming blocked</td></tr>
+<tr><td>ops</td><td>sara</td><td>ws-ops01, idm01, util01</td><td>full</td><td>standard</td></tr>
+<tr><td>dba</td><td>omar</td><td>ws-ops01</td><td>none yet (<code>sudo -u postgres</code> comes with app01)</td><td>allow-list only</td></tr>
+<tr><td>security</td><td>laila</td><td>util01</td><td>audit tools only: journalctl, ausearch, aureport, last</td><td>standard; reads central logs and reports</td></tr>
+<tr><td>contractors</td><td>contractor1</td><td>ws-dev01</td><td>none</td><td>allow-list only; account expires 2026-12-31; 50 MB home</td></tr>
+</table>
+<p>"Standard" internet means any HTTPS site except the deny lists (social media and video/music streaming); AI assistants are allowed because developers use them for work. "Allow-list" means only package repositories, GitHub and documentation. Nobody gets plain HTTP.</p>
+
+<h2>1.3 The six hosts</h2>
+<table>
+<tr><th>Host</th><th>Role</th><th>Size</th><th>Disks</th><th>IP</th></tr>
+<tr><td>gw01</td><td>VPN gateway, the only host with a public address</td><td>t3.small (2 GB)</td><td>20 GiB OS</td><td>10.0.0.10 + Elastic IP</td></tr>
+<tr><td>control01</td><td>Ansible control node; where every change is applied from</td><td>t3.small</td><td>20 GiB OS</td><td>10.0.1.10</td></tr>
+<tr><td>idm01</td><td>FreeIPA: identity, Kerberos, DNS, certificate authority</td><td>c7i-flex.large (4 GB)</td><td>20 GiB OS</td><td>10.0.1.11</td></tr>
+<tr><td>util01</td><td>Web proxy, NFS file server, central logs and audit, backups</td><td>t3.small</td><td>20 GiB OS + 20 GB + 10 GB data</td><td>10.0.1.12</td></tr>
+<tr><td>ws-dev01</td><td>Dev team workstation (also contractors)</td><td>t3.small</td><td><b>10 GiB OS only</b></td><td>10.0.2.10</td></tr>
+<tr><td>ws-ops01</td><td>Ops and DBA workstation</td><td>t3.small</td><td><b>10 GiB OS only</b></td><td>10.0.2.11</td></tr>
+</table>
+<div class="box why"><div class="box-title">Why the workstations have no data disks</div>
+Workstations hold no user or team data at all (D-061). Users' home directories and the team shares live on util01's data disks and are mounted over the network (NFS) when a user logs in. A lost or rebuilt workstation therefore loses nothing; the same files appear on any workstation; there is exactly one copy of every file, and it is backed up with util01. This is how company desktops work with network home directories. The workstation disk is 10 GiB because that is the minimum the RHEL image allows.</div>
+
+<h2>1.4 The principles everything follows</h2>
+<ol>
+<li><b>Terraform builds, Ansible configures</b> (D-003). Terraform creates what AWS provides (network, servers, disks, firewall rules in AWS, IAM permissions). Ansible configures the operating system and the services on top.</li>
+<li><b>Everything is code and the lab is rebuilt every session</b> (D-032, D-048). Manual repairs are allowed only to rescue a broken host, and must be followed by a code change that prevents the problem from coming back.</li>
+<li><b>Default deny</b> (D-019). No network connection is possible unless it is written down in <code>terraform/network-policy.tf</code>. Firewalls on the hosts repeat the same boundary as a second layer.</li>
+<li><b>Data, not code, for day-to-day changes.</b> Adding a user, a team, a VPN peer or a website to a block list means editing a data file under <code>ansible/inventory/group_vars/</code>, never the logic.</li>
+<li><b>Secrets never in Git, logs or Terraform state</b> (D-042, D-043). Secrets are encrypted with Ansible Vault; the Vault password lives in AWS SSM and only control01 can read it.</li>
+<li><b>Every decision is recorded</b> with its alternatives and why it was chosen (<code>Decisions.md</code>, D-001 to D-069). Every real failure gets an incident report (INC-001 to INC-007).</li>
+<li><b>Prove it with tests.</b> <code>scripts/test-lab.sh</code> runs 160 checks, logging in as real users and proving both what is allowed and what is refused.</li>
+</ol>
+
+<h2>1.5 How the project was built (timeline)</h2>
+<table>
+<tr><th>Stage</th><th>What was built</th><th>Decisions</th></tr>
+<tr><td>Foundations</td><td>RHEL 10, region, tool split, network with private subnets and NAT, default-deny security groups, host inventory, S3 state</td><td>D-001 to D-022</td></tr>
+<tr><td>Access</td><td>VPN gateway gw01 (WireGuard), Instance Connect break-glass, the ansible automation account, Ansible from control01 with a dynamic inventory</td><td>D-023 to D-031</td></tr>
+<tr><td>Lifecycle</td><td><code>lab.sh</code>, patch baseline, tests, host keys, VPN fixes (WireGuard inside TLS after INC-001)</td><td>D-032 to D-041</td></tr>
+<tr><td>Secrets</td><td>Persistent Terraform layer, Vault password in SSM, state bucket adopted into code, Terraform tests</td><td>D-042 to D-045</td></tr>
+<tr><td>Roadmap 1</td><td>FreeIPA: server, every client enrolled, users and rules as data</td><td>D-046 to D-051</td></tr>
+<tr><td>Roadmap 2</td><td>Per-team VPN policy, tested with synthetic peers</td><td>D-052 to D-055</td></tr>
+<tr><td>Roadmap 3</td><td>util01: forced web proxy, NFS homes, central TLS logs, S3 backups</td><td>D-056 to D-059</td></tr>
+<tr><td>Roadmap 4</td><td>Storage: second disk, quotas, team shares; stable IPA IDs</td><td>D-060, D-061</td></tr>
+<tr><td>Roadmap 5</td><td>Fixed host IPs reserved; audit; CIS compliance at 100%; patching in rings; restore and incident drills; DNS pinning; admin access</td><td>D-062 to D-069</td></tr>
+</table>
+
+<h2>1.6 How to read this guide</h2>
+<p>Chapter 2 explains every tool and technology the project uses, from zero, so the rest makes sense. Chapter 3 is the architecture: network, hosts, access paths and the security layers. Chapters 4 and 5 walk through the Terraform and Ansible code file by file and role by role. Chapter 6 explains the scripts. Chapter 7 follows real requests end to end (a login, a VPN packet, a web request, a log line). Chapter 8 covers the security operations (audit, compliance, patching, drills). Chapter 9 is the day-to-day operations manual. Chapter 10 lists every decision, chapter 11 every incident and drill, chapter 12 the lessons and traps, and chapter 13 prepares you for interview questions about the project. Decision numbers (D-0xx), incidents (INC-0xx) and drills (DRILL-00x) refer to <code>Decisions.md</code>, <code>docs/incident-reports/</code> and <code>docs/drills/</code>.</p>
