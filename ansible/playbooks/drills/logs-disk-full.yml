@@ -6,11 +6,15 @@
   hosts: role_util
   gather_facts: false
   tasks:
-    - name: Fill the log volume (leaves a few MB for the filesystem itself)
+    # Really full: almost all of it at once, the rest until the filesystem
+    # refuses (a first version left 2 MB free and the messages fitted).
+    - name: Fill the log volume completely
       ansible.builtin.shell: |
         avail=$(df --output=avail -m /srv/logs | tail -1)
-        fallocate -l $(( avail - 2 ))M /srv/logs/drill-fill
-        df --output=pcent /srv/logs | tail -1
+        fallocate -l $(( avail - 1 ))M /srv/logs/drill-fill
+        dd if=/dev/zero of=/srv/logs/drill-fill2 bs=4k 2> /dev/null || true
+        if echo probe > /srv/logs/drill-probe 2> /dev/null; then echo "NOT FULL"; exit 1; fi
+        echo "$(df --output=pcent /srv/logs | tail -1 | xargs), writes refused"
       register: drill_fill
       changed_when: true
 
@@ -35,14 +39,15 @@
     drill_clients: "{{ groups['all'] | difference(groups['role_util']) | length }}"
   tasks:
     - name: Messages stored while full
-      ansible.builtin.shell: sleep 15; grep -l {{ drill_token }} /srv/logs/*/ahmed-drill-disk.log 2>/dev/null | wc -l
+      ansible.builtin.shell: sleep 30; grep -l {{ drill_token }} /srv/logs/*/ahmed-drill-disk.log 2>/dev/null | wc -l
       register: drill_stored_full
       changed_when: false
 
     - name: "Recover: free the space"
       ansible.builtin.file:
-        path: /srv/logs/drill-fill
+        path: "/srv/logs/{{ item }}"
         state: absent
+      loop: [drill-fill, drill-fill2, drill-probe]
 
     - name: Clock at recovery
       ansible.builtin.set_fact:
