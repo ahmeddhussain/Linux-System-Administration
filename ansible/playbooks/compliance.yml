@@ -1,0 +1,16 @@
+---
+# OpenSCAP CIS Level 1 scan of every host (D-064). Reporting, not
+# configuration, so it is not part of site.yml. Run by lab.sh after
+# site.yml and before the tests, or alone: scripts/lab.sh compliance
+- name: Scan every host against its CIS Level 1 profile
+  hosts: all
+  roles:
+    - compliance
+
+- name: Publish the results on util01 for the security team
+  hosts: role_util
+  tasks:
+    - name: Reports, results and summary
+      ansible.builtin.include_role:
+        name: compliance
+        tasks_from: publish

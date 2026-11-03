@@ -762,3 +762,31 @@ Every design choice: what we chose, what else we considered, and why.
   with Kerberos (new principal, keytab, port 60) and does not fit D-059.
   Tradeoff: the path passes through journald, which drops messages in
   very large bursts; the local audit.log stays the complete record.
+
+## D-064: Compliance - OpenSCAP CIS Level 1, fixes in our own roles
+- **Chosen:** every host is scanned with OpenSCAP and the SCAP Security
+  Guide shipped with RHEL: `cis_server_l1` on servers, `cis_workstation_l1`
+  on workstations. A role `compliance` and a separate playbook
+  `compliance.yml` (run by `lab.sh` after site.yml and before the tests, or
+  alone with `lab.sh compliance`) scan each host locally and publish the
+  HTML report, the XCCDF results and a summary on util01 in
+  `/srv/logs/reports/openscap/`, readable by the security team. Findings
+  are fixed in the role that owns the area, with a test; deliberate
+  exceptions go into a tailoring file in the repository, each with its
+  reason. Each host role has a minimum score in `group_vars/all.yml`
+  (`compliance_min_score`), raised as findings are fixed and never
+  lowered; a test fails when a host scores below it. First the baseline
+  is measured with no fixes, then findings are reviewed area by area.
+- **Alternatives:** DISA STIG; CIS Level 2; the playbooks SSG generates
+  for each profile; `oscap --remediate`; scanning inside site.yml;
+  `oscap-ssh` from control01; requiring zero failures
+- **Why:** CIS Level 1 is the common commercial baseline and is meant not
+  to break services; STIG and Level 2 require FIPS, AIDE, smart cards and
+  separate /var, /tmp and /var/log partitions that the stock image does
+  not have, so most of the work would be exceptions. The generated
+  playbooks make hundreds of unreviewed changes that could break IPA,
+  NFS, sudo or the VPN and would fight our roles on every run. Scanning is
+  reporting, not configuration: kept out of site.yml so it stays fast and
+  idempotent. Zero failures is not realistic with deliberate design
+  choices (for example NFS sec=sys, D-058); a minimum that only rises
+  keeps fixes from silently regressing.

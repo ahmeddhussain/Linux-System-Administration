@@ -38,6 +38,12 @@ configure_hosts() {
   run_on_control01 site "$REMOTE_ANSIBLE && ansible-playbook playbooks/site.yml"
 }
 
+# OpenSCAP scan of every host, results published on util01 (D-064).
+run_compliance() {
+  log "Compliance scan (OpenSCAP CIS Level 1; several minutes)"
+  run_on_control01 compliance "$REMOTE_ANSIBLE && ansible-playbook playbooks/compliance.yml"
+}
+
 run_tests() {
   log "Verification tests"
   ssh control01 'cat > ~/test-lab.sh' < "$ROOT/scripts/test-lab.sh"

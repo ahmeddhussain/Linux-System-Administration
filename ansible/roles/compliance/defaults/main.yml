@@ -1,0 +1,10 @@
+---
+# OpenSCAP scans against CIS Level 1 (D-064).
+compliance_datastream: /usr/share/xml/scap/ssg/content/ssg-rhel10-ds.xml
+compliance_profile: "{{ 'cis_workstation_l1' if ec2_tags.Role == 'workstation' else 'cis_server_l1' }}"
+# Results on the scanned host, on control01 (in transit), and on util01.
+compliance_dir: /var/lib/ahmed-compliance
+compliance_fetch_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/compliance-results"
+compliance_publish_dir: /srv/logs/reports/openscap
+compliance_reader_group: security
+compliance_fqdn: "{{ inventory_hostname }}.{{ ipa_domain }}"

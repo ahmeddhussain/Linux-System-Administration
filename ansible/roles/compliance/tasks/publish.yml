@@ -1,0 +1,40 @@
+---
+# On util01: publish every host's results and the summary for the security
+# team, next to the audit reports (D-064, D-063).
+
+- name: Create the OpenSCAP report directory
+  ansible.builtin.file:
+    path: "{{ compliance_publish_dir }}"
+    state: directory
+    owner: root
+    group: "{{ compliance_reader_group }}"
+    mode: "0750"
+
+# Only hosts scanned in this run (a failed scan leaves its old results).
+- name: Publish each host's report and results
+  ansible.builtin.copy:
+    src: "{{ compliance_fetch_dir }}/{{ item }}.{{ ipa_domain }}/"
+    dest: "{{ compliance_publish_dir }}/{{ item }}.{{ ipa_domain }}/"
+    owner: root
+    group: "{{ compliance_reader_group }}"
+    mode: "0640"
+    directory_mode: "0750"
+  loop: "{{ groups['all'] | sort }}"
+  when: hostvars[item].compliance_result is defined
+
+- name: Write the summary (score against each role's minimum)
+  ansible.builtin.template:
+    src: summary.txt.j2
+    dest: "{{ compliance_publish_dir }}/summary.txt"
+    owner: root
+    group: "{{ compliance_reader_group }}"
+    mode: "0640"
+
+- name: Show the summary
+  ansible.builtin.command: cat {{ compliance_publish_dir }}/summary.txt
+  register: compliance_summary
+  changed_when: false
+
+- name: Summary
+  ansible.builtin.debug:
+    var: compliance_summary.stdout_lines

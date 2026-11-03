@@ -5,6 +5,7 @@
 #   scripts/lab.sh up [-y]          build everything, configure it, test it, refresh the VPN client (safety net)
 #   scripts/lab.sh resume           redo configuration and tests on existing infrastructure
 #   scripts/lab.sh verify [--full]  run the tests (--full adds the slow idempotency run)
+#   scripts/lab.sh compliance       rerun the OpenSCAP scan and publish the results (D-064)
 #   scripts/lab.sh status           show the instances
 #   scripts/lab.sh down [-y]        disconnect the VPN and destroy everything
 #
@@ -26,7 +27,7 @@ AUTO_APPROVE=""
 FULL=""
 
 usage() {
-  sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -39,6 +40,7 @@ cmd_resume() {
   setup_control01
   configure_hosts
   reboot_control01_if_needed
+  run_compliance || warn "Compliance scan failed; rerun with: scripts/lab.sh compliance"
   run_tests || warn "Some checks failed; see the FAIL lines above."
   "$SCRIPT_DIR/vpn-client.sh" refresh || warn "VPN client not refreshed; run scripts/vpn-client.sh refresh"
   log "Ready. Connect with: scripts/vpn-client.sh connect"
@@ -68,6 +70,7 @@ case "$cmd" in
   up) cmd_up ;;
   resume) cmd_resume ;;
   verify) run_tests ;;
+  compliance) run_compliance ;;
   status) infra_status ;;
   down) cmd_down ;;
   *) usage ;;

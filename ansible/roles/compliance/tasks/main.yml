@@ -1,0 +1,57 @@
+---
+# Scan this host against its CIS Level 1 profile and bring the results to
+# control01 (D-064). Reporting only: nothing here changes the host's
+# configuration except installing the scanner.
+
+- name: Install the scanner and the SCAP Security Guide content
+  ansible.builtin.dnf:
+    name:
+      - openscap-scanner
+      - scap-security-guide
+    state: present
+
+- name: Create the results directory (root only)
+  ansible.builtin.file:
+    path: "{{ compliance_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+# Exit code 2 means "some rules failed", the normal result; 1 is an error.
+- name: Scan against {{ compliance_profile }}
+  ansible.builtin.command: >-
+    oscap xccdf eval
+    --profile xccdf_org.ssgproject.content_profile_{{ compliance_profile }}
+    --results {{ compliance_dir }}/results.xml
+    --report {{ compliance_dir }}/report.html
+    {{ compliance_datastream }}
+  register: compliance_scan
+  changed_when: false
+  failed_when: compliance_scan.rc not in [0, 2]
+
+- name: Read the score and the pass and fail counts
+  ansible.builtin.shell: |
+    f={{ compliance_dir }}/results.xml
+    score=$(grep -oE 'urn:xccdf:scoring:default"[^>]*>[0-9.]+' "$f" | grep -oE '[0-9.]+$' | head -1)
+    pass=$(grep -o '<result>pass</result>' "$f" | wc -l)
+    fail=$(grep -o '<result>fail</result>' "$f" | wc -l)
+    echo "${score:-0} $pass $fail"
+  register: compliance_counts
+  changed_when: false
+
+- name: Remember the result for the summary
+  ansible.builtin.set_fact:
+    compliance_result:
+      score: "{{ compliance_counts.stdout.split()[0] | float }}"
+      pass: "{{ compliance_counts.stdout.split()[1] | int }}"
+      fail: "{{ compliance_counts.stdout.split()[2] | int }}"
+
+- name: Bring the results to control01
+  ansible.builtin.fetch:
+    src: "{{ compliance_dir }}/{{ item }}"
+    dest: "{{ compliance_fetch_dir }}/{{ compliance_fqdn }}/{{ item }}"
+    flat: true
+  loop:
+    - results.xml
+    - report.html
