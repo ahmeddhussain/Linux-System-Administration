@@ -16,26 +16,17 @@ template(name="ahmed_audit_per_host" type="string"
   string="{{ log_dir }}/%FROMHOST%/audit.log")
 template(name="ahmed_audit_raw" type="string" string="%$!audit%\n")
 
-# A message is accepted over TCP before it is written, so the senders'
-# disk queues cannot cover a failed write here. Each file action gets its
-# own queue that waits and retries instead (spooled to /var/lib/rsyslog on
-# the root filesystem when large): a full log volume delays messages
-# instead of dropping them (drill logs-disk-full, D-067).
 ruleset(name="ahmed_remote") {
   if $programname == "audisp-syslog" and $msg contains "type=" then {
     set $!audit = ltrim($msg);
     action(type="omfile" dynaFile="ahmed_audit_per_host" template="ahmed_audit_raw"
       createDirs="on" dirCreateMode="0750" fileCreateMode="0640"
-      dirGroup="{{ log_reader_group }}" fileGroup="{{ log_reader_group }}"
-      queue.type="LinkedList" queue.filename="central_audit" queue.maxDiskSpace="500m"
-      queue.saveOnShutdown="on" action.resumeRetryCount="-1" action.resumeInterval="10")
+      dirGroup="{{ log_reader_group }}" fileGroup="{{ log_reader_group }}")
     stop
   }
   action(type="omfile" dynaFile="ahmed_per_host" createDirs="on"
     dirCreateMode="0750" fileCreateMode="0640"
-    dirGroup="{{ log_reader_group }}" fileGroup="{{ log_reader_group }}"
-    queue.type="LinkedList" queue.filename="central_logs" queue.maxDiskSpace="500m"
-    queue.saveOnShutdown="on" action.resumeRetryCount="-1" action.resumeInterval="10")
+    dirGroup="{{ log_reader_group }}" fileGroup="{{ log_reader_group }}")
   stop
 }
 
