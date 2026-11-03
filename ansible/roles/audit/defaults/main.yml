@@ -1,0 +1,7 @@
+---
+# Audit rules and forwarding (D-063).
+audit_rules_file: /etc/audit/rules.d/50-ahmed.rules
+# Real users start at this UID (local accounts and IPA users alike).
+audit_min_uid: 1000
+# Automation account left out of the "privileged" rule only (D-063).
+audit_unaudited_account: "{{ ansible_user }}"

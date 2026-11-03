@@ -9,7 +9,20 @@ module(load="imtcp"
 template(name="ahmed_per_host" type="string"
   string="{{ log_dir }}/%FROMHOST%/%PROGRAMNAME:::secpath-replace%.log")
 
+# Audit records (D-063) are stored as raw audit lines, without a syslog
+# header, so "ausearch -if" and "aureport -if" read the file directly.
+template(name="ahmed_audit_per_host" type="string"
+  string="{{ log_dir }}/%FROMHOST%/audit.log")
+template(name="ahmed_audit_raw" type="string" string="%$!audit%\n")
+
 ruleset(name="ahmed_remote") {
+  if $programname == "audisp-syslog" then {
+    set $!audit = ltrim($msg);
+    action(type="omfile" dynaFile="ahmed_audit_per_host" template="ahmed_audit_raw"
+      createDirs="on" dirCreateMode="0750" fileCreateMode="0640"
+      dirGroup="{{ log_reader_group }}" fileGroup="{{ log_reader_group }}")
+    stop
+  }
   action(type="omfile" dynaFile="ahmed_per_host" createDirs="on"
     dirCreateMode="0750" fileCreateMode="0640"
     dirGroup="{{ log_reader_group }}" fileGroup="{{ log_reader_group }}")

@@ -1,0 +1,12 @@
+---
+# Validate the whole configuration first; a broken rsyslog loses logs.
+- name: Restart rsyslog
+  ansible.builtin.shell: rsyslogd -N1 && systemctl restart rsyslog
+
+# auditd refuses "systemctl restart" (RefuseManualStop); the service
+# wrapper is the supported way. Its start loads the rules too.
+- name: Restart auditd
+  ansible.builtin.command: service auditd restart
+
+- name: Load audit rules
+  ansible.builtin.command: augenrules --load

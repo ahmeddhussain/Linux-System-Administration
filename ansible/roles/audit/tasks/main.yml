@@ -1,0 +1,71 @@
+---
+# Audit records on every host, sent to util01 (D-063). Runs after
+# log_forwarder, whose TLS forward carries the records.
+
+- name: Install auditd and its syslog plugin
+  ansible.builtin.dnf:
+    name:
+      - audit
+      - audispd-plugins
+    state: present
+
+# Before the plugin is switched on, so no record lands in /var/log/messages.
+- name: Keep audit records out of the local system log (forwarded only)
+  ansible.builtin.template:
+    src: 95-ahmed-audit.conf.j2
+    dest: /etc/rsyslog.d/95-ahmed-audit.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart rsyslog
+
+- name: Apply the rsyslog change
+  ansible.builtin.meta: flush_handlers
+
+- name: Name the host in every record (node=)
+  ansible.builtin.lineinfile:
+    path: /etc/audit/auditd.conf
+    regexp: '^\s*name_format\s*='
+    line: name_format = HOSTNAME
+  notify: Restart auditd
+
+- name: Send every record to syslog
+  ansible.builtin.template:
+    src: syslog.conf.j2
+    dest: /etc/audit/plugins.d/syslog.conf
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Restart auditd
+
+- name: Look up the automation account's UID
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ audit_unaudited_account }}"
+
+- name: Install the audit rules
+  ansible.builtin.template:
+    src: 50-ahmed.rules.j2
+    dest: "{{ audit_rules_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  vars:
+    audit_unaudited_uid: "{{ ansible_facts.getent_passwd[audit_unaudited_account][1] }}"
+  notify: Load audit rules
+
+- name: Apply the audit changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Keep auditd running
+  ansible.builtin.systemd_service:
+    name: auditd
+    enabled: true
+    state: started
+
+# augenrules reports a bad line but loads the rest; catch that here.
+- name: Confirm every keyed rule is loaded
+  ansible.builtin.shell: >-
+    test "$(auditctl -l | grep -c ' -k \| key=')" -eq
+    "$(grep -c '^-.* -k ' {{ audit_rules_file }})"
+  changed_when: false

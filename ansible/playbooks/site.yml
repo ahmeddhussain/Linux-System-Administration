@@ -50,6 +50,11 @@
   roles:
     - log_forwarder
 
+- name: Every host audits identity, config and root commands, sent to util01 (D-063)
+  hosts: all
+  roles:
+    - audit
+
 - name: Workstations use util01's services (D-058/D-061 NFS, D-057 web proxy)
   hosts: role_workstation
   roles:

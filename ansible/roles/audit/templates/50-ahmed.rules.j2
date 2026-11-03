@@ -1,0 +1,46 @@
+## Managed by Ansible (role: audit). Company audit rules (D-063).
+## Every rule has a key: search with "ausearch -k <key>", or on util01
+## "sudo ausearch -if /srv/logs/<host>/audit.log -k <key>".
+## The vendor audit.rules sets the buffer and failure mode; augenrules puts
+## its "-D" first whatever the file order.
+
+## identity: local accounts, groups and passwords changed
+-w /etc/passwd -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+-w /etc/security/opasswd -p wa -k identity
+
+## sudoers: local sudo rules (IPA rules are audited on idm01)
+-w /etc/sudoers -p wa -k sudoers
+-w /etc/sudoers.d/ -p wa -k sudoers
+
+## sshd: SSH server configuration
+-w /etc/ssh/sshd_config -p wa -k sshd
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd
+
+## identity-config: how this host trusts IPA
+-w /etc/sssd/ -p wa -k identity-config
+-w /etc/krb5.conf -p wa -k identity-config
+-w /etc/krb5.conf.d/ -p wa -k identity-config
+-w /etc/ipa/ -p wa -k identity-config
+
+## time-change: clock set by hand (chrony's slewing is not a settime call)
+-a always,exit -F arch=b64 -S settimeofday,clock_settime -k time-change
+-a always,exit -F arch=b32 -S settimeofday,clock_settime -k time-change
+-w /etc/localtime -p wa -k time-change
+
+## modules: kernel modules loaded or removed
+-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k modules
+-a always,exit -F arch=b32 -S init_module,finit_module,delete_module -k modules
+
+## audit-config: someone changes auditing itself
+-w /etc/audit/ -p wa -k audit-config
+-w /etc/libaudit.conf -p wa -k audit-config
+
+## privileged: every command a real user runs as root, including inside a
+## root shell after "sudo -i". The automation account
+## ({{ audit_unaudited_account }}, UID {{ audit_unaudited_uid }}) is left out;
+## its changes are traced in Git and ansible.log.
+-a always,exit -F arch=b64 -S execve -F euid=0 -F auid>={{ audit_min_uid }} -F auid!=unset -F auid!={{ audit_unaudited_uid }} -k privileged
+-a always,exit -F arch=b32 -S execve -F euid=0 -F auid>={{ audit_min_uid }} -F auid!=unset -F auid!={{ audit_unaudited_uid }} -k privileged

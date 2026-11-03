@@ -85,6 +85,66 @@
     group: root
     mode: "0644"
 
+# Daily audit summary for the security team (D-063).
+- name: Create the audit report directory
+  ansible.builtin.file:
+    path: "{{ log_dir }}/reports"
+    state: directory
+    owner: root
+    group: "{{ log_reader_group }}"
+    mode: "0750"
+
+- name: Install the audit report script
+  ansible.builtin.template:
+    src: ahmed-audit-report.sh.j2
+    dest: /usr/local/sbin/ahmed-audit-report
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install the audit report service and its hourly timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - name: ahmed-audit-report.service
+      content: |
+        # Managed by Ansible (role: log_server)
+        [Unit]
+        Description=Write today's audit summary for every host (D-063)
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/ahmed-audit-report
+    - name: ahmed-audit-report.timer
+      content: |
+        # Managed by Ansible (role: log_server)
+        # Hourly, not daily: the lab rarely lives through a night (D-063).
+        [Unit]
+        Description=Hourly refresh of today's audit summary
+
+        [Timer]
+        OnCalendar=hourly
+        Persistent=true
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Reload systemd
+
+- name: Apply systemd changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable the audit report timer
+  ansible.builtin.systemd_service:
+    name: ahmed-audit-report.timer
+    enabled: true
+    state: started
+
 - name: Open the log port to the VPC only
   ansible.posix.firewalld:
     rich_rule: >-

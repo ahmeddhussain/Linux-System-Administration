@@ -264,6 +264,23 @@ sys.exit(1 if bad else 0)'"
   as_check "the security team (laila) can read the logs" laila 10.0.1.12 "grep -q $logtoken /srv/logs/*/ahmed-logtest.log"
   as_check "other teams (sara) cannot"                   sara  10.0.1.12 "! cat /srv/logs/*/ahmed-logtest.log"
 
+  echo "== Audit records on every host, central on util01 (D-063)"
+  check "audit rules are loaded on every host" "ansible all -b -m shell -a 'auditctl -l | grep -q key=privileged && auditctl -l | grep -q -e \"-k identity\"'"
+  remote_check "audit records stay out of /var/log/messages" all '! grep -q audisp-syslog /var/log/messages'
+  audittoken="auditcheck-$(date +%s)"
+  as_user sara 10.0.2.11 "sudo -n /usr/bin/echo $audittoken"
+  ansible ws-dev01 -b -m command -a 'touch /etc/ssh/sshd_config' > /dev/null 2>&1
+  sleep 8
+  central="ausearch -if /srv/logs"
+  remote_check "sara's sudo on ws-ops01 is on util01 (USER_CMD)" util01 "$central/ws-ops01/audit.log -m USER_CMD --start recent -i | grep -q $audittoken"
+  remote_check "... and her root command (key privileged)"       util01 "$central/ws-ops01/audit.log -k privileged --start recent -i | grep -q $audittoken"
+  remote_check "a change to sshd_config on ws-dev01 is found by key" util01 "$central/ws-dev01/audit.log -k sshd --start recent > /dev/null"
+  remote_check "Ansible's own root commands are not in privileged" util01 "! $central/ws-dev01/audit.log -k privileged --start recent -i 2> /dev/null | grep -q 'auid=ansible'"
+  as_check "the security team (laila) can search them"   laila 10.0.1.12 "sudo -n $central/ws-ops01/audit.log -k privileged --start recent > /dev/null"
+  as_check "other teams (sara) cannot read them"          sara  10.0.1.12 "! cat /srv/logs/ws-ops01/audit.log"
+  check "today's audit report is written" "ansible util01 -b -m shell -a 'systemctl start ahmed-audit-report.service && grep -q \"==== ws-ops01\" /srv/logs/reports/audit-\$(date +%F).txt'"
+  as_check "... and the security team can read it"       laila 10.0.1.12 'test -r /srv/logs/reports/audit-$(date +%F).txt'
+
   echo "== NFS home directories (D-058): util01 -> workstations"
   check "util01 exports homes, NFSv4 only"          "ansible util01 -b -m shell -a 'exportfs -s | grep -q /export/home && grep -q -- -3 /proc/fs/nfsd/versions'"
   as_check "ahmed's home on ws-dev01 is NFS at /users/ahmed" ahmed 10.0.2.10 'test "$PWD" = /users/ahmed && findmnt -n -o FSTYPE -T . | grep -q nfs4'

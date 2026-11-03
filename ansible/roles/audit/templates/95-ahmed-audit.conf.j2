@@ -1,0 +1,5 @@
+# Managed by Ansible (role: audit). Audit records arrive from auditd's syslog
+# plugin; 90-ahmed-forward.conf has already sent them to util01 (D-063).
+# The local copy is /var/log/audit/audit.log, so do not repeat them in
+# /var/log/messages.
+if $programname == "audisp-syslog" then stop

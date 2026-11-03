@@ -1,0 +1,8 @@
+# Managed by Ansible (role: audit). auditd's syslog plugin: every record also
+# goes to rsyslog, which forwards it to util01 over TLS (D-063, D-059).
+active = yes
+direction = out
+path = /usr/sbin/audisp-syslog
+type = always
+args = LOG_INFO
+format = string

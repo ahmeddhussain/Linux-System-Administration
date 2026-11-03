@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Managed by Ansible (role: log_server). Today's audit summary for every host
+# that sends audit records here (D-063), written to
+# {{ log_dir }}/reports/audit-<date>.txt for the security team. Run hourly by
+# ahmed-audit-report.timer; rerun it by hand at any time.
+set -euo pipefail
+reports={{ log_dir }}/reports
+out="$reports/audit-$(date +%F).txt"
+tmp="$(mktemp)"
+trap 'rm -f "$tmp" "$tmp.in"' EXIT
+
+# aureport exits non-zero when nothing matches; that is a valid "none".
+section() {
+  echo "-- $1"
+  shift
+  aureport -if "$tmp.in" --start today -i "$@" 2> /dev/null || echo "   (none)"
+}
+
+{
+  echo "Audit summary for $(date +%F), written $(date '+%F %T %Z') on $(hostname -s)"
+  for dir in {{ log_dir }}/*/; do
+    host="$(basename "$dir")"
+    [ -f "$dir/audit.log" ] || continue
+    # Yesterday's rotated file (kept uncompressed one day) can still hold
+    # records from today.
+    cat "$dir"/audit.log.1 "$dir"/audit.log 2> /dev/null > "$tmp.in" || true
+    echo
+    echo "==== $host"
+    section "events by key (rule)" --key --summary
+    section "failed authentications" --auth --failed --summary
+    section "failed logins" --login --failed --summary
+    section "events by user" --user --summary
+  done
+} > "$tmp"
+
+install -m 0640 -g {{ log_reader_group }} "$tmp" "$out"
