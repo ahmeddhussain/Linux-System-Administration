@@ -1,7 +1,7 @@
 # CLAUDE.md: ahmed-infra
 
 Context for Claude Code. **Read `PROJECT_HANDOFF.md` first** (state, history,
-how to continue). Sources of truth: `Decisions.md` (D-001 to D-062),
+how to continue). Sources of truth: `Decisions.md` (D-001 to D-068),
 `docs/architecture/org-structure.md`, `docs/incident-reports/`,
 `docs/runbooks/`. Keep this file short; detail belongs in those files.
 
@@ -77,8 +77,11 @@ control01 run detached and are polled (`run_on_control01` in
 - More lessons with causes and fixes: `PROJECT_HANDOFF.md` section 7.
 
 ## 5. Current state (2026-11-03)
-- Lab layer **up** (session in progress); persistent and bootstrap layers in place.
-- Roadmap 1-4 done; 5a audit done (D-063); D-062 / INC-006 fixed host IPs.
-  Last `lab.sh verify` **144/144**.
-- **Now:** roadmap 5 without app01: 5b OpenSCAP, 5c patching cadence,
-  5d restore drills, 5f incident drills (app01 deferred), decisions first.
+- Lab layer **down**; persistent and bootstrap layers in place. A full
+  build from nothing with roadmap 5 is not yet proven: Ahmed runs `up` next.
+- Roadmap 1-4 and 5 without app01 done: audit (D-063), CIS Level 1 100%
+  (D-064), patching (D-065), drills (D-066, D-067), pinned names (D-068);
+  INC-006, INC-007 resolved. Last `lab.sh verify` **160/160**.
+- **Next:** `eval "$(ssh-agent)"; scripts/lab.sh up`, `vpn-client.sh
+  refresh`, then app01 (roadmap 5, last part), decisions first. Ahmed to
+  review delegated D-065 to D-067 and the INC-007 admin follow-up.

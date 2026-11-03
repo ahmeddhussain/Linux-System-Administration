@@ -1,9 +1,9 @@
 # PROJECT_HANDOFF.md: ahmed-infra
 
-Handoff for a fresh Claude Code session (written 2026-11-03, verified against
-the repository at commit `c30f4a0`). Read `CLAUDE.md` first for the working
+Handoff for a fresh Claude Code session (updated 2026-11-03 end of session 3,
+verified against the repository as pushed). Read `CLAUDE.md` first for the working
 rules; this file is the project's memory. Details live in `Decisions.md`
-(D-001 to D-062), `docs/incident-reports/` (INC-001 to INC-007) and
+(D-001 to D-068), `docs/incident-reports/` (INC-001 to INC-007) and
 `docs/runbooks/`.
 
 ---
@@ -62,7 +62,13 @@ GitHub: `github.com/ahmeddhussain/Linux-System-Administration` (public).
   `lv_logs` 6 G); NFSv4 homes at `/users/<name>` and team shares at
   `/teams/<team>` via IPA automount maps; XFS user and project quotas; Squid
   (HTTPS only; port 3128 standard policy, 3129 allow-list); rsyslog over TLS
-  with IPA certificates; tar + awscli2 backups to S3.
+  with IPA certificates (central audit records, reports, space guard);
+  tar + awscli2 backups to S3 with restore drills.
+- **Security operations** (every host): auditd rules (D-063); CIS Level 1
+  hardening role and OpenSCAP scans at 100% with documented exceptions
+  (D-064); patch cycle in rings (D-065); restore and incident drills
+  (D-066, D-067); idm01 and util01 pinned in `/etc/hosts` (D-068). SSH is
+  key-only by configuration, not only by policy (INC-007).
 
 ### Teams and policy (as built; source: `docs/architecture/org-structure.md`)
 | Team | Example user | Logins | sudo | Internet |
@@ -84,20 +90,22 @@ GitHub: `github.com/ahmeddhussain/Linux-System-Administration` (public).
 | `terraform/modules/` | `network`, `security-groups`, `ec2-instance` (each with `versions.tf`; tests in the first two) |
 | `terraform/persistent/` | Survives teardown: SSM Vault password (write-only), S3 backup bucket |
 | `terraform/bootstrap/` | The state bucket itself (adopted with `import`) |
-| `ansible/playbooks/` | `site.yml` (everything, in order), `idm.yml` (IPA, roles only), `patch.yml`, `bootstrap.yml` |
-| `ansible/roles/` | `base`, `audit`, `wireguard_gateway`, `ipa_server_verify`, `ipa_client_prepare`, `ipa_client_health`, `ipa_identity`, `ipa_client_config`, `util_storage`, `log_server`, `log_forwarder`, `nfs_server`, `nfs_client`, `team_shares`, `web_proxy`, `proxy_client` |
+| `ansible/playbooks/` | `site.yml` (everything, in order; `hardening` last), `idm.yml` (IPA, roles only), `patch.yml` (one host set), `patch-cycle.yml` + `patch-gate.yml` (rings), `compliance.yml` (OpenSCAP), `drills/` (restore, idm-outage, logs-disk-full, package-rollback), `bootstrap.yml` |
+| `ansible/roles/` | `base`, `hardening`, `audit`, `compliance`, `wireguard_gateway`, `ipa_server_verify`, `ipa_client_prepare`, `ipa_client_health`, `ipa_identity`, `ipa_client_config`, `util_storage`, `log_server`, `log_forwarder`, `nfs_server`, `nfs_client`, `team_shares`, `web_proxy`, `proxy_client` |
 | `ansible/inventory/` | `aws_ec2.yml` (dynamic inventory); `group_vars/`: `all.yml`, `ipaclients.yml`, `role_control.yml`, `role_gateway/{main,vault}.yml`, `role_idm/{main,vault,identity}.yml`, `role_util/{storage,web_policy}.yml` |
 | `ansible/tests/` | Encrypted private test keys (IPA users, VPN test peers) |
 | `ansible/scripts/vault-password.py` | Vault password from SSM |
 | `scripts/` | `lab.sh` (+ `lib/`), `vpn-client.sh`, `test-lab.sh`, `control01-setup.sh` |
-| `Decisions.md` | Every decision with alternatives and reasons (D-001 to D-062) |
-| `docs/` | `architecture/` (org-structure, FreeIPA options), `incident-reports/`, `runbooks/` (vpn-client, freeipa, storage) |
+| `Decisions.md` | Every decision with alternatives and reasons (D-001 to D-068) |
+| `docs/` | `architecture/` (org-structure, FreeIPA options), `incident-reports/` (INC-001 to INC-007), `drills/` (DRILL-001 to DRILL-004), `runbooks/` (vpn-client, freeipa, storage, patching) |
 
 Where to change things (data, not code): users/groups/HBAC/sudo/IDs in
 `role_idm/identity.yml`; VPN peers and per-team VPN policy in
 `role_gateway/main.yml`; web lists in `role_util/web_policy.yml`; team to
 web-policy map in `all.yml`; quotas and shares in `role_util/storage.yml`;
-hosts and disks in `terraform/variables.tf`.
+hosts and disks in `terraform/variables.tf` (fixed IPs inside `10.0.x.8/29`);
+CIS exceptions and minimum scores in `all.yml` (`compliance_exceptions`,
+`compliance_min_score`).
 
 ---
 
@@ -111,7 +119,7 @@ hosts and disks in `terraform/variables.tf`.
 | Ansible | ansible-core 2.18 in a venv on control01; collections ansible.posix 2.2.2, amazon.aws 12.0.0, freeipa.ansible_freeipa 1.17.0 |
 | FreeIPA | 4.13.4 |
 | VPN | WireGuard + wstunnel 11.1.0 (pinned, SHA-256 checked) |
-| Others | Squid 6.10, nfs-utils 2.8, rsyslog (OpenSSL TLS driver), awscli2 |
+| Others | Squid 6.10, nfs-utils 2.8, rsyslog 8.2510 (OpenSSL TLS driver), audit 4.0.3, OpenSCAP 1.4.4 + scap-security-guide 0.1.82, AIDE, awscli2 2.33 |
 
 ---
 
@@ -130,8 +138,13 @@ hosts and disks in `terraform/variables.tf`.
 | Polish: stable IPA IDs (D-060), roles instead of long playbooks, docs as built | done |
 | Fixed host IPs protected by subnet CIDR reservations (D-062, INC-006) | done |
 | Audit (roadmap 5a): keyed rules on every host, records central on util01, hourly report (D-063) | done |
+| Compliance (5b): OpenSCAP CIS Level 1 100% on every host (from 70-74), `hardening` role, tailoring with documented exceptions (D-064) | done |
+| SSH really key-only: drop-in read first, every drop-in agrees (INC-007) | done |
+| Patching (5c): rings with health gates, security-only cycle, records, rollback runbook (D-065) | done |
+| Restore drills (5d): RPO/RTO measured against targets every resume (D-066) | done |
+| Incident drills (5f): idm-outage, logs-disk-full, package-rollback; findings fixed (D-067, D-068, log space guard) | done |
 
-**Last verification: `lab.sh verify` 144/144** (2026-11-03), and `site.yml`
+**Last verification: `lab.sh verify` 160/160** (2026-11-03), and `site.yml`
 rerun idempotent. The first complete build from nothing worked after the fixes
 in section 7. First real backup restore: 1 s.
 
@@ -155,6 +168,15 @@ in section 7. First real backup restore: 1 s.
 - **Fixed host IPs** live in an explicit subnet CIDR reservation `10.0.x.8/29` (D-062).
 - **Audit** (D-063): own keyed rules, records through the syslog plugin and the
   TLS log path to `/srv/logs/<fqdn>/audit.log` (raw, `ausearch -if`).
+- **Compliance** (D-064): CIS Level 1 (server/workstation), fixes in our own
+  roles, exceptions with reasons in `compliance_exceptions`; minimum score
+  100 per role, only raised. Hardening runs last in site.yml.
+- **Patching** (D-065): `lab.sh patch` in rings, gates between; site.yml
+  also patches first on every build.
+- **Drills** (D-066, D-067): restore drill on every resume; incident drills
+  by hand (`lab.sh drill <name>`), reports in `docs/drills/`.
+- **Pinned names** (D-068, Ahmed's choice): idm01/util01 in `/etc/hosts`;
+  an IPA replica is the full fix (roadmap 6).
 
 ---
 
@@ -179,6 +201,10 @@ in section 7. First real backup restore: 1 s.
 | SSH offered password (keyboard-interactive) logins everywhere (INC-007) | sshd keeps the FIRST value; IPA's `04-ipa.conf` was read before our `10-` drop-in | our drop-in is `01-ahmed-hardening.conf`; test checks the methods offered |
 | Audit tests found nothing on util01 | central log directories are FQDNs (`ws-ops01.ahmed.internal`) | use the FQDN in paths |
 | A "word not in /var/log/messages" check failed | Ansible logs every command line it runs | match the program field, not the word |
+| CIS rules failing although the effective setting was right | the scanner reads every config file as text (IPA's and the OS's sshd drop-ins) | make every file agree, not only the one that wins |
+| "Unowned files" on util01 | OpenSCAP reads /etc/passwd, not SSSD; the files are IPA users' | documented exception for util01 |
+| Messages lost with util01's log disk full (DRILL-002) | rsyslog drops a message it cannot write (ENOSPC is permanent); senders already handed it over | space guard below 85%; action queues do not help (tried, reverted) |
+| Backup reported failed once under load | tar exit 1 = a log changed while read, treated as failure under pipefail | exit 1 is a warning, 2 a failure (hypothesis, not reproduced) |
 | `InvalidIPAddress.InUse` for control01 (INC-006) | Instance Connect Endpoint auto-assigned 10.0.1.10 | explicit subnet CIDR reservation for fixed host IPs (D-062) |
 
 Shell and Ansible traps (full list in `CLAUDE.md` lessons): ssh needs a closed
@@ -190,17 +216,20 @@ an EBS root volume cannot shrink (`-replace`); never interrupt dnf.
 
 ---
 
-## 8. Current state (2026-11-03)
+## 8. Current state (2026-11-03, end of session 3)
 
-- **Lab layer is DOWN** (destroyed with `lab.sh down` after a backup).
-  Persistent and bootstrap layers exist and are untouched.
-- Repository clean and pushed; roadmap items 1-4 done and verified.
+- **Lab layer is DOWN** (destroyed with `lab.sh down` after a backup, then
+  a partial `up` stopped at Ahmed's request was destroyed too: its
+  Terraform stage created all six hosts on their fixed IPs, so D-062 holds
+  on a fresh build; configuration from nothing is not yet re-proven). Persistent
+  and bootstrap layers exist and are untouched.
+- Repository clean and pushed; roadmap items 1-4 and 5 (without app01) done
+  and verified.
 - **AWS account after INC-005:** only the root user (MFA on, no access keys)
-  and the IAM user `ahmeddhussain` with one rotated access key. All other
-  users, roles, the admin group and the GitHub OIDC provider were deleted.
-- **AWS Free plan**: usage is paid from credits (about $107 left on
-  2026-11-02); the plan **expires 2026-12-21**, after which the account closes
-  unless upgraded to a paid plan (then lab costs reach the card). Check:
+  and the IAM user `ahmeddhussain` (MFA on) with one rotated access key.
+- **AWS Free plan**: usage paid from credits (about $105 left on
+  2026-11-03); the plan **expires 2026-12-21**, after which the account
+  closes unless upgraded to a paid plan. Check:
   `aws freetier get-account-plan-state`. A $0.10 budget alert exists.
 
 ---
@@ -209,31 +238,45 @@ an EBS root volume cannot shrink (`-replace`); never interrupt dnf.
 
 - sec=sys NFS and the nftables per-user web layer can be bypassed by root on a
   workstation (ops have full sudo on ws-ops01).
+- Single IPA server: with idm01 down, names of idm01/util01 still resolve
+  (D-068) but identity changes, Kerberos and uncached logins stop
+  (DRILL-001). A replica is roadmap item 6.
+- An instantly full log volume still loses messages (rsyslog design,
+  DRILL-002); the space guard prevents the slow, realistic case. No
+  alerting system yet: the guard's warnings go to syslog only.
+- IPA's `admin` account (password in the vault) is in IPA's `admins` group,
+  which HBAC allows everywhere. Since INC-007 it cannot log in with its
+  password over SSH, but it should not be a host login at all (open,
+  Ahmed's decision: a separate group for named admins).
+- AIDE's database is rebuilt at the end of every site.yml run and patch,
+  so it reports only changes made outside Ansible between runs.
 - SSHFP records exist but without DNSSEC OpenSSH still relies on known_hosts.
-- chrony's AWS time source comes from the image default, not from `base`
-  (guarded by a test).
 - amazon.aws removes the `tags` host variable after 2026-12-01; this repo uses
   `ec2_tags` (recheck on collection upgrades).
 - Backups are full tar.gz each time (fine at lab size).
-- Single IPA server (no replica); idm01 is a single point of failure.
 - Dev "restart app" and dba "sudo -u postgres" rules wait for app01.
 - No CI or linters, by Ahmed's choice; the tests are `test-lab.sh` and the
   Terraform mock tests.
+- D-065, D-066 and D-067 were decided by Claude on Ahmed's delegation
+  (marked in Decisions.md) and are open for his review.
 
 ---
 
 ## 10. Remaining tasks and roadmap
 
-**Ahmed (manual, AWS console):** enable MFA and set a new console password for
-`ahmeddhussain`; recheck the bill for Bedrock charges; decide about the Free
-plan before 2026-12-21.
+**Ahmed (manual):** decide about the Free plan before 2026-12-21; review the
+delegated decisions D-065 to D-067; decide whether IPA's `admin` keeps host
+logins (INC-007 follow-up).
 
-**Roadmap item 5 (next):** patching cadence, logging/audit (auditd, reports),
-backup/restore drills with measured RTO, OpenSCAP compliance, app01 (web/db
-tier, activates the dev and dba sudo rules), incident drills.
+**Roadmap item 5, last part (next):** app01 (web and database tier in the
+app subnet, `10.0.3.10`; activates the dev and dba sudo rules), built to
+the hardened, audited baseline from the start (hardening, audit and
+compliance roles apply to every host).
 
-**Roadmap item 6 (possible):** golden image to shorten rebuilds, SSH
-certificates, execution environments, SSM break-glass.
+**Roadmap item 6 (possible):** IPA replica (removes the identity single
+point of failure, DRILL-001), golden image to shorten rebuilds, SSH
+certificates, alerting (log space guard, AIDE, failed drills), execution
+environments, SSM break-glass.
 
 Open ideas: IAM Identity Center (short-lived credentials) instead of an access
 key; default tag `Layer = "lab"`.
@@ -244,18 +287,22 @@ key; default tag `Layer = "lab"`.
 
     cd ~/ahmed-infra
     eval "$(ssh-agent)"
-    scripts/lab.sh up               # Terraform apply + bootstrap + site.yml + tests (about 1 h from nothing)
-    scripts/vpn-client.sh connect   # needs Ahmed's sudo
+    scripts/lab.sh up               # Terraform + bootstrap + site.yml + CIS scan + restore drill + tests (about 1 h from nothing)
+    scripts/vpn-client.sh refresh   # new gw01 address after a rebuild; needs Ahmed's sudo
+    scripts/vpn-client.sh connect
     ssh control01-vpn               # admin entry (break-glass: ssh control01)
-    scripts/lab.sh verify           # tests (expect 144/144; --full adds idempotency)
+    scripts/lab.sh verify           # tests (expect 160/160; --full adds idempotency)
+    scripts/lab.sh compliance       # CIS scan again (summary on util01)
+    scripts/lab.sh patch            # patch cycle in rings (--security: errata only)
+    scripts/lab.sh drill <name>     # restore | idm-outage | logs-disk-full | package-rollback
     scripts/lab.sh down             # backs up util01 to S3, then destroys the lab layer
 
 Rules of the workflow: change code on the laptop, commit, **push**, then
 control01 pulls (lab.sh does it). Ansible runs **only on control01** from
 `~/ahmed-infra/ansible`. For a long run outside lab.sh, start it detached on
 control01 and poll. Ending a roadmap item: verify, commit, push, update
-`CLAUDE.md` sections 10/12, review `terraform plan -destroy`, then
-`lab.sh down`.
+`CLAUDE.md` section 5 and this file (sections 8, 10, 13), review
+`terraform plan -destroy`, then `lab.sh down`.
 
 Credentials (never in Git or docs): AWS CLI credentials in `~/.aws/credentials`
 on the laptop; bootstrap SSH key `~/.ssh/ivolve.pem`; WireGuard client key in
@@ -278,14 +325,22 @@ on the laptop; bootstrap SSH key `~/.ssh/ivolve.pem`; WireGuard client key in
 | Renumbering IPA IDs | would change live users; froze the existing numbers (D-060) |
 | CI pipelines and linters | Ahmed's choice: focus on sysadmin, tests already exist |
 | Admin access keys for several IAM users, GitHub roles trusting `repo:*` | caused / enabled INC-005; removed |
+| SSG's generated remediation playbooks, `oscap --remediate` | hundreds of unreviewed changes that would fight our roles (D-064) |
+| CIS Level 2 / STIG | separate partitions, FIPS, smart cards: mostly exceptions (D-064) |
+| audisp-remote for audit records | Kerberos-only encryption, new port; syslog plugin reuses TLS (D-063) |
+| rsyslog action queues against a full disk | rsyslog drops on ENOSPC regardless (DRILL-002) |
 
 ---
 
 ## 13. Where we stopped and the immediate next step
 
-Stopped after roadmap item 4 (verified 134/134), a documentation polish, and
-containing INC-005. The lab is down.
+Stopped after roadmap item 5 without app01: audit, CIS Level 1 at 100%,
+patching in rings, restore and incident drills, two drill findings fixed,
+INC-006 and INC-007 resolved. Verified 160/160 on the running lab, site.yml
+rerun idempotent (changed=0 on all hosts), then brought down.
 
-**Next step:** Ahmed enables MFA on `ahmeddhussain`; then start a session with
-`scripts/lab.sh up` (expect 134/134) and plan roadmap item 5, decisions first
-(options, alternatives, Ahmed chooses), one step at a time.
+**Next step:** `scripts/lab.sh up` from nothing (expect 160/160; the first
+full build with the hardening, audit and compliance roles), `vpn-client.sh
+refresh`,
+then app01 (roadmap 5, last part), decisions first (options, alternatives,
+Ahmed chooses), one step at a time.
