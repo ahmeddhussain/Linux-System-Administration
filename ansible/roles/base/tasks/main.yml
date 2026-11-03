@@ -4,6 +4,19 @@
     name: "{{ base_packages }}"
     state: present
 
+# IPA's DNS is the only resolver for ahmed.internal; with idm01 down the
+# proxy, NFS and log names stopped resolving (DRILL-001). The servers
+# everyone depends on are pinned here, from the inventory's fixed IPs
+# (D-062, D-068). A second IPA server is the full fix (roadmap item 6).
+- name: Pin the infrastructure servers' names
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE: infrastructure names (D-068)"
+    block: |
+      {% for h in (groups['role_idm'] | default([])) + (groups['role_util'] | default([])) %}
+      {{ hostvars[h].ansible_host }} {{ h }}.{{ ipa_domain }} {{ h }}
+      {% endfor %}
+
 - name: Set the timezone
   ansible.builtin.file:
     src: "/usr/share/zoneinfo/{{ base_timezone }}"

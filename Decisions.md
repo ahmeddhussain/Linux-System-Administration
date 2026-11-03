@@ -859,3 +859,18 @@ Every design choice: what we chose, what else we considered, and why.
   between runs; each one checks a promise the design makes (SSSD cache,
   disk queues, rollback). Random failures teach less than chosen ones in
   a six-host lab.
+
+## D-068: Infrastructure names pinned in /etc/hosts (IPA DNS single point of failure)
+*Chosen by Ahmed (2026-11-03) from the options in DRILL-001.*
+- **Chosen:** every host's `/etc/hosts` holds the names of the servers the
+  company depends on (idm01, util01), from the inventory's fixed IPs
+  (D-062), managed by the base role. A second IPA server with DNS
+  (roadmap item 6) is the full fix later.
+- **Alternatives:** an IPA replica now; a Route 53 private zone as a
+  fallback resolver; no change
+- **Why:** DRILL-001 showed that with idm01 down nothing resolves
+  `ahmed.internal`, so workstations lose the proxy, new NFS mounts and
+  log forwarding although util01 itself is fine. Two pinned names cost
+  nothing, cannot drift (the IPs are fixed and reserved in code), and
+  keep util01's services reachable during an identity outage. A replica
+  doubles the most expensive host; a second DNS needs keeping in sync.

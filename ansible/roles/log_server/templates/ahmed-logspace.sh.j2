@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Managed by Ansible (role: log_server). Keeps the central log volume from
+# filling up (DRILL-002): rsyslog drops a message it cannot write, and the
+# senders have already handed it over. Above {{ log_space_high_pct }}% use, delete the oldest
+# rotated logs (older copies are in the S3 backups, D-056) until use is
+# below {{ log_space_low_pct }}%. Current logs and reports are never deleted.
+set -euo pipefail
+dir={{ log_dir }}
+used() { df --output=pcent "$dir" | tail -1 | tr -dc '0-9'; }
+
+[ "$(used)" -ge {{ log_space_high_pct }} ] || exit 0
+logger -p user.warning -t ahmed-logspace "$dir at $(used)%: deleting the oldest rotated logs"
+find "$dir" -mindepth 2 -path "$dir/reports" -prune -o -type f \
+    \( -name '*.log-*' -o -name '*.log.[0-9]*' -o -name '*.gz' \) -printf '%T@ %p\n' \
+  | sort -n | cut -d' ' -f2- \
+  | while read -r f; do
+      [ "$(used)" -lt {{ log_space_low_pct }} ] && break
+      rm -f -- "$f"
+      logger -t ahmed-logspace "deleted $f"
+    done
+[ "$(used)" -lt {{ log_space_high_pct }} ] \
+  || logger -p user.err -t ahmed-logspace "$dir still at $(used)% with no rotated logs left: needs an admin"

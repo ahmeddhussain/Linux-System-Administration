@@ -4,3 +4,7 @@ log_server_port: 6514
 log_retention_days: 14
 # IPA group that may read the central logs (security team, org-structure).
 log_reader_group: security
+# Space guard (DRILL-002): above high, delete the oldest rotated logs
+# until below low.
+log_space_high_pct: 85
+log_space_low_pct: 80

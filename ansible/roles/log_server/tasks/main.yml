@@ -145,6 +145,57 @@
     enabled: true
     state: started
 
+# Space guard: rsyslog loses messages it cannot write (DRILL-002).
+- name: Install the log space guard
+  ansible.builtin.template:
+    src: ahmed-logspace.sh.j2
+    dest: /usr/local/sbin/ahmed-logspace
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install the log space guard service and its timer (every 5 minutes)
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - name: ahmed-logspace.service
+      content: |
+        # Managed by Ansible (role: log_server)
+        [Unit]
+        Description=Keep the central log volume below {{ log_space_high_pct }}% (DRILL-002)
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/ahmed-logspace
+    - name: ahmed-logspace.timer
+      content: |
+        # Managed by Ansible (role: log_server)
+        [Unit]
+        Description=Check the central log volume every 5 minutes
+
+        [Timer]
+        OnCalendar=*:0/5
+        Persistent=true
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Reload systemd
+
+- name: Apply systemd changes (space guard)
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable the log space guard
+  ansible.builtin.systemd_service:
+    name: ahmed-logspace.timer
+    enabled: true
+    state: started
+
 - name: Open the log port to the VPC only
   ansible.posix.firewalld:
     rich_rule: >-
