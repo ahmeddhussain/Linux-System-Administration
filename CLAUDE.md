@@ -77,8 +77,8 @@ control01 run detached and are polled (`run_on_control01` in
 - More lessons with causes and fixes: `PROJECT_HANDOFF.md` section 7.
 
 ## 5. Current state (2026-11-03)
-- Lab layer **down**; persistent and bootstrap layers in place.
-- Roadmap items 1-4 done; last `lab.sh verify` **134/134**.
-- Ahmed to do: MFA and new console password for `ahmeddhussain`.
-- **Next:** `eval "$(ssh-agent)"; scripts/lab.sh up`, then roadmap item 5
-  (patching cadence, audit, restore drills, OpenSCAP, app01), decisions first.
+- Lab layer **up** (session in progress); persistent and bootstrap layers in place.
+- Roadmap 1-4 done; 5a audit done (D-063); D-062 / INC-006 fixed host IPs.
+  Last `lab.sh verify` **144/144**.
+- **Now:** roadmap 5 without app01: 5b OpenSCAP, 5c patching cadence,
+  5d restore drills, 5f incident drills (app01 deferred), decisions first.

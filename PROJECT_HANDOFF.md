@@ -85,7 +85,7 @@ GitHub: `github.com/ahmeddhussain/Linux-System-Administration` (public).
 | `terraform/persistent/` | Survives teardown: SSM Vault password (write-only), S3 backup bucket |
 | `terraform/bootstrap/` | The state bucket itself (adopted with `import`) |
 | `ansible/playbooks/` | `site.yml` (everything, in order), `idm.yml` (IPA, roles only), `patch.yml`, `bootstrap.yml` |
-| `ansible/roles/` | `base`, `wireguard_gateway`, `ipa_server_verify`, `ipa_client_prepare`, `ipa_client_health`, `ipa_identity`, `ipa_client_config`, `util_storage`, `log_server`, `log_forwarder`, `nfs_server`, `nfs_client`, `team_shares`, `web_proxy`, `proxy_client` |
+| `ansible/roles/` | `base`, `audit`, `wireguard_gateway`, `ipa_server_verify`, `ipa_client_prepare`, `ipa_client_health`, `ipa_identity`, `ipa_client_config`, `util_storage`, `log_server`, `log_forwarder`, `nfs_server`, `nfs_client`, `team_shares`, `web_proxy`, `proxy_client` |
 | `ansible/inventory/` | `aws_ec2.yml` (dynamic inventory); `group_vars/`: `all.yml`, `ipaclients.yml`, `role_control.yml`, `role_gateway/{main,vault}.yml`, `role_idm/{main,vault,identity}.yml`, `role_util/{storage,web_policy}.yml` |
 | `ansible/tests/` | Encrypted private test keys (IPA users, VPN test peers) |
 | `ansible/scripts/vault-password.py` | Vault password from SSM |
@@ -128,8 +128,10 @@ hosts and disks in `terraform/variables.tf`.
 | util01 (roadmap 3): forced web proxy with per-user layer, NFS homes, TLS logs, S3 backups + restore | done |
 | Storage (roadmap 4): second disk, online growth, user and team quotas, team shares with default ACLs | done |
 | Polish: stable IPA IDs (D-060), roles instead of long playbooks, docs as built | done |
+| Fixed host IPs protected by subnet CIDR reservations (D-062, INC-006) | done |
+| Audit (roadmap 5a): keyed rules on every host, records central on util01, hourly report (D-063) | done |
 
-**Last verification: `lab.sh verify` 134/134** (2026-11-02), and `site.yml`
+**Last verification: `lab.sh verify` 144/144** (2026-11-03), and `site.yml`
 rerun idempotent. The first complete build from nothing worked after the fixes
 in section 7. First real backup restore: 1 s.
 
@@ -150,6 +152,9 @@ in section 7. First real backup restore: 1 s.
 - **Stable IDs** (D-060): fixed IPA range 455400000-455599999 and explicit
   UID/GID in `identity.yml`. Next free ID is noted in that file.
 - **Workstations hold no data** (D-061); util01 gets the space.
+- **Fixed host IPs** live in an explicit subnet CIDR reservation `10.0.x.8/29` (D-062).
+- **Audit** (D-063): own keyed rules, records through the syslog plugin and the
+  TLS log path to `/srv/logs/<fqdn>/audit.log` (raw, `ausearch -if`).
 
 ---
 
@@ -171,6 +176,8 @@ in section 7. First real backup restore: 1 s.
 | Backup failed | NFS `.nfsXXXX` silly-rename files locked | exclude `.nfs*` |
 | Security group delete hung ~15 min | Terraform deletes an SG before moving instances | create new SGs and rules, move instances, delete old last |
 | Re-enrolling a replaced host | IPA refuses an OTP for an enrolled host | release (disable) the old entry first |
+| Audit tests found nothing on util01 | central log directories are FQDNs (`ws-ops01.ahmed.internal`) | use the FQDN in paths |
+| A "word not in /var/log/messages" check failed | Ansible logs every command line it runs | match the program field, not the word |
 | `InvalidIPAddress.InUse` for control01 (INC-006) | Instance Connect Endpoint auto-assigned 10.0.1.10 | explicit subnet CIDR reservation for fixed host IPs (D-062) |
 
 Shell and Ansible traps (full list in `CLAUDE.md` lessons): ssh needs a closed
@@ -239,7 +246,7 @@ key; default tag `Layer = "lab"`.
     scripts/lab.sh up               # Terraform apply + bootstrap + site.yml + tests (about 1 h from nothing)
     scripts/vpn-client.sh connect   # needs Ahmed's sudo
     ssh control01-vpn               # admin entry (break-glass: ssh control01)
-    scripts/lab.sh verify           # tests (expect 134/134; --full adds idempotency)
+    scripts/lab.sh verify           # tests (expect 144/144; --full adds idempotency)
     scripts/lab.sh down             # backs up util01 to S3, then destroys the lab layer
 
 Rules of the workflow: change code on the laptop, commit, **push**, then
