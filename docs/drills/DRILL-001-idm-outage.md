@@ -5,7 +5,7 @@
 | Date | 2026-11-03 |
 | Playbook | `ansible/playbooks/drills/idm-outage.yml` (`scripts/lab.sh drill idm-outage`) |
 | Decision | D-067 |
-| Result | Recovery OK; **finding: IPA's DNS is a single point of failure** |
+| Result | Recovery OK; finding (IPA's DNS a single point of failure) fixed by D-068 and verified by a rerun |
 
 ## Scenario
 All IPA services on idm01 stopped (`ipactl stop`): LDAP, Kerberos, DNS, CA,
@@ -42,7 +42,7 @@ do not resolve, so:
 util01's lookup succeeded only because it looked up its own name, which
 glibc's `nss-myhostname` answers locally; it is not a DNS success.
 
-## Options (for Ahmed's decision; not changed)
+## Options (Ahmed chose B, D-068; A stays roadmap item 6)
 | Option | Effect | Cost |
 |---|---|---|
 | A. A second IPA server (replica) with DNS (roadmap item 6) | Identity and DNS survive one server; the real fix | one more c7i-flex.large-class host |
@@ -51,3 +51,12 @@ glibc's `nss-myhostname` answers locally; it is not a DNS success.
 
 Recommendation: B now (small, uses the fixed IPs that D-062 already
 guarantees), A when roadmap item 6 adds a replica.
+
+## Rerun after D-068 (2026-11-03 19:29 UTC)
+| Client | Known user resolves | Company names resolve | SSSD | Online again after restart |
+|---|---|---|---|---|
+| control01, util01, ws-dev01, ws-ops01 | yes | **yes** (pinned names) | offline | 63 s |
+
+With IPA down, the proxy, NFS and log server names now resolve on every
+client. Identity itself (new logins of users not in the cache, Kerberos,
+sudo rule updates) still needs idm01: the replica of roadmap item 6.
